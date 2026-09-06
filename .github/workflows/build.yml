@@ -84,8 +84,18 @@ jobs:
           set -euo pipefail
           # One .exe is the whole point on Windows. A macOS .app cannot be a
           # single file, and PyInstaller rejects onefile+windowed there.
-          if [ "$RUNNER_OS" = "Windows" ]; then MODE=--onefile; else MODE=--onedir; fi
-          pyinstaller ${{ env.PYINSTALLER_ARGS }} "$MODE" \
+          # UPX and a blank PE version resource are the usual reasons Defender
+          # calls the unsigned onefile stub malware. --noupx plus a version
+          # file do not replace a code signature, but they cut the false hits.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python packaging/write_version_info.py packaging/_file_version_info.txt
+            MODE=--onefile
+            EXTRA=(--noupx --version-file packaging/_file_version_info.txt)
+          else
+            MODE=--onedir
+            EXTRA=(--noupx)
+          fi
+          pyinstaller ${{ env.PYINSTALLER_ARGS }} "$MODE" "${EXTRA[@]}" \
             --name csprpc --windowed packaging/csprpc_entry.py
 
       - name: Smoke test the app

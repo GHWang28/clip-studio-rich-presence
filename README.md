@@ -42,7 +42,12 @@ Nothing else to install; Python is bundled inside.
 One file per machine. Double-click it and the window opens.
 
 On Windows, SmartScreen shows "Windows protected your PC" the first time —
-choose **More info → Run anyway**.
+choose **More info → Run anyway**. Windows Defender sometimes goes further and
+quarantines the file with *"The operation did not complete successfully because
+the file contains a virus or potentially unwanted software."* That is a false
+positive: the unsigned PyInstaller stub looks like a packer to Defender's
+heuristics. Restore it from **Windows Security → Protection history**, or skip
+the download and [run from source](#option-b--run-from-source).
 
 On macOS, extract it **in Terminal**, then double-click `csprpc.app`:
 
@@ -318,6 +323,14 @@ not recorded there and cannot be named.
 Set `document.strategies` to reorder or disable either approach.
 
 ## Troubleshooting
+
+**Windows says the file contains malware.** The downloaded `csprpc.exe` is not
+malware. Defender flags many unsigned PyInstaller one-file builds this way.
+Open **Windows Security → Virus & threat protection → Protection history**,
+select the `csprpc.exe` entry, and choose **Restore**. If it keeps eating the
+file, run [from source](#option-b--run-from-source) instead — that never
+touches a packed exe. A paid code-signing certificate is the lasting fix for
+the downloadable build.
 
 **Nothing shows on my profile.** In Discord, check **Settings → Activity
 Privacy → Display current activity as a status message** is on. Then run

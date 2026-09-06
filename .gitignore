@@ -7,5 +7,6 @@ build/
 dist/
 *.spec
 _smoke/
+packaging/_file_version_info.txt
 .pytest_cache/
 .DS_Store
