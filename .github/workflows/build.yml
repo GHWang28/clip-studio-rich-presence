@@ -1,0 +1,126 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYINSTALLER_ARGS: >-
+    --onefile --clean --noconfirm
+    --paths .
+    --collect-submodules csprpc
+    --hidden-import csprpc.macos
+    --hidden-import csprpc.windows
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The Windows backend's ctypes calls only ever execute here.
+      - name: Run tests
+        run: python -m unittest discover -s tests -t . -v
+
+  build:
+    name: build (${{ matrix.artifact }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: csprpc-windows
+          - os: macos-latest
+            artifact: csprpc-macos-arm64
+          - os: macos-13
+            artifact: csprpc-macos-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build console executable
+        run: pyinstaller ${{ env.PYINSTALLER_ARGS }} --name csprpc --console packaging/csprpc_entry.py
+
+      # A second, console-less build so the logon task shows no window.
+      - name: Build windowless executable
+        if: runner.os == 'Windows'
+        run: pyinstaller ${{ env.PYINSTALLER_ARGS }} --name csprpcw --noconsole packaging/csprpc_entry.py
+
+      - name: Smoke test the executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN=./dist/csprpc.exe; else BIN=./dist/csprpc; fi
+          export CSPRPC_HOME="$PWD/_smoke"
+          "$BIN" --version
+          "$BIN" config set client_id 123456789012345678
+          "$BIN" config show > /dev/null
+          "$BIN" stats
+          "$BIN" run --dry-run --once
+          # doctor exits non-zero when it finds problems, which is expected on
+          # a runner with no Discord and no CLIP STUDIO PAINT.
+          "$BIN" doctor || true
+          rm -rf "$CSPRPC_HOME"
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/csprpc
+            dist/csprpc.exe
+            dist/csprpcw.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp artifacts/csprpc-windows/csprpc.exe        release/csprpc.exe
+          cp artifacts/csprpc-windows/csprpcw.exe       release/csprpcw.exe
+          cp artifacts/csprpc-macos-arm64/csprpc        release/csprpc-macos-arm64
+          cp artifacts/csprpc-macos-x86_64/csprpc       release/csprpc-macos-x86_64
+          chmod +x release/csprpc-macos-*
+          ls -la release
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
