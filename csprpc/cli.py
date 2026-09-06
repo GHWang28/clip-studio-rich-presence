@@ -30,6 +30,25 @@ IS_WINDOWS = sys.platform == "win32"
 OK = "\u2713"
 BAD = "\u2717"
 WARN = "!"
+# Windows cmd.exe is often cp1252, which cannot encode the ticks above.
+OK_PLAIN = "OK"
+BAD_PLAIN = "X"
+
+
+def _status_mark(ok: Optional[bool]) -> str:
+    """A tick, cross or warning that this stdout can actually print."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        OK.encode(encoding)
+        ticks = True
+    except (LookupError, UnicodeEncodeError):
+        ticks = False
+    if ok is True:
+        return OK if ticks else OK_PLAIN
+    if ok is None:
+        return WARN
+    return BAD if ticks else BAD_PLAIN
+
 
 log = logging.getLogger("csprpc")
 
@@ -289,8 +308,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 
     def report(ok: Optional[bool], message: str, hint: str = "") -> None:
         nonlocal failures
-        mark = OK if ok else (WARN if ok is None else BAD)
-        print("{} {}".format(mark, message))
+        print("{} {}".format(_status_mark(ok), message))
         if hint:
             print("    -> {}".format(hint))
         if ok is False:
