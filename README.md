@@ -333,6 +333,12 @@ git push origin v0.2.0
 ```
 
 That runs the tests, builds for Windows, Apple Silicon and Intel, smoke tests
-each binary, and attaches them all to a GitHub release. You can also trigger a
-build without tagging from the Actions tab ("Run workflow"), which leaves the
-binaries as downloadable artifacts for 30 days.
+each binary, and attaches them all to a GitHub release it creates for the tag.
+Pushing the tag is the whole trigger — don't create the release by hand on the
+Releases page, or you will do the workflow's job for it (and if you leave the
+"Choose a tag" box empty there, GitHub rejects it with *"tag name can't be
+blank"*).
+
+You can also trigger a build without tagging from the Actions tab ("Run
+workflow"), which skips the release step and leaves the binaries as downloadable
+artifacts for 30 days.
