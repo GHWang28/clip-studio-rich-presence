@@ -121,13 +121,28 @@ jobs:
           tar -czf "${{ matrix.artifact }}.tar.gz" -C dist csprpc.app
           tar -tzf "${{ matrix.artifact }}.tar.gz" | head -5
 
+      # Stage to one folder so the artifact root is the file itself.
+      # upload-artifact uses the least common ancestor of every path it is
+      # given as the root; listing both dist/csprpc.exe and a tarball that
+      # only exists on macOS used to put the Windows exe at dist/csprpc.exe,
+      # which the release job then could not find.
+      - name: Stage the upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp dist/csprpc.exe upload/csprpc.exe
+          else
+            cp "${{ matrix.artifact }}.tar.gz" "upload/${{ matrix.artifact }}.tar.gz"
+          fi
+          ls -la upload
+
       - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            dist/csprpc.exe
-            ${{ matrix.artifact }}.tar.gz
+          path: upload/*
           if-no-files-found: error
           retention-days: 30
 
@@ -147,9 +162,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          cp artifacts/csprpc-windows/csprpc.exe                       release/csprpc.exe
-          cp artifacts/csprpc-macos-arm64/csprpc-macos-arm64.tar.gz    release/
-          cp artifacts/csprpc-macos-x86_64/csprpc-macos-x86_64.tar.gz  release/
+          find artifacts -type f -print
+          exe="$(find artifacts/csprpc-windows -name 'csprpc.exe' -type f | head -n 1)"
+          test -n "${exe}"
+          cp "${exe}" release/csprpc.exe
+          cp artifacts/csprpc-macos-arm64/*.tar.gz release/
+          cp artifacts/csprpc-macos-x86_64/*.tar.gz release/
           ls -la release
 
       - name: Publish release
