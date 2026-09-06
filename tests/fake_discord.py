@@ -48,6 +48,12 @@ class FakeDiscord:
         reject_handshake: Optional[str] = None,
         send_ping: bool = False,
     ):
+        if not hasattr(socket, "AF_UNIX"):
+            import unittest
+
+            # Real Discord uses a named pipe on Windows, covered separately.
+            raise unittest.SkipTest("no unix socket support on this platform")
+
         # Unix socket paths are capped at ~104 bytes, so prefer short /tmp
         # paths over the long per-user temporary directory.
         self.dir = Path(_make_socket_dir())

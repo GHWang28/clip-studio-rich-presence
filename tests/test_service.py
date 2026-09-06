@@ -57,6 +57,7 @@ class ServiceCommandTest(unittest.TestCase):
             self.assertEqual(cli._background_launcher(), str(exe))
 
 
+@unittest.skipUnless(sys.platform == "darwin", "TCC-protected folders are macOS-only")
 class ProtectedLocationTest(unittest.TestCase):
     def test_desktop_is_protected(self):
         self.assertEqual(_protected_location(Path.home() / "Desktop" / "code" / "app"), "Desktop")
@@ -73,6 +74,15 @@ class ProtectedLocationTest(unittest.TestCase):
 
     def test_folder_merely_named_like_one_is_fine(self):
         self.assertIsNone(_protected_location(Path.home() / "work" / "Desktop"))
+
+
+@unittest.skipIf(sys.platform == "darwin", "covered by ProtectedLocationTest")
+class ProtectedLocationElsewhereTest(unittest.TestCase):
+    def test_the_check_is_inert(self):
+        # Only macOS gates these folders, so nothing should be reported and the
+        # service installer must not warn about them.
+        self.assertIsNone(_protected_location(Path.home() / "Desktop" / "app"))
+        self.assertIsNone(_protected_location(Path.home() / "Documents" / "app"))
 
 
 class AgentStartupErrorTest(unittest.TestCase):

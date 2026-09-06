@@ -81,8 +81,12 @@ class LiveWin32Test(unittest.TestCase):
         self.assertIsNone(discord_ipc.find_endpoint())
 
     def test_config_lands_in_appdata(self):
-        os.environ.pop("CSPRPC_HOME", None)
-        self.assertIn("ClipStudioRichPresence", str(config_module.data_dir()))
+        saved = os.environ.pop("CSPRPC_HOME", None)
+        try:
+            self.assertIn("ClipStudioRichPresence", str(config_module.data_dir()))
+        finally:
+            if saved is not None:
+                os.environ["CSPRPC_HOME"] = saved
 
 
 if __name__ == "__main__":

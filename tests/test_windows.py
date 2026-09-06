@@ -4,6 +4,7 @@ The ctypes entry points can only run on Windows, but the module must import
 everywhere and its pure logic is testable anywhere.
 """
 
+import sys
 import unittest
 from unittest import mock
 
@@ -117,7 +118,8 @@ class DetectDocumentTest(unittest.TestCase):
 
 class RunCommandTest(unittest.TestCase):
     def test_runs_without_the_windows_only_flag(self):
-        code, out, _ = windows.run_command(["echo", "hello"])
+        # Not `echo`: that is a cmd builtin on Windows, not an executable.
+        code, out, _ = windows.run_command([sys.executable, "-c", "print('hello')"])
         self.assertEqual(code, 0)
         self.assertIn("hello", out)
 
