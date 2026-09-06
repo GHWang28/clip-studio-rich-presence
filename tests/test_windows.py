@@ -5,7 +5,9 @@ everywhere and its pure logic is testable anywhere.
 """
 
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from csprpc import windows
@@ -123,7 +125,59 @@ class DetectDocumentTest(unittest.TestCase):
              mock.patch.object(windows, "open_document_paths", return_value=[]):
             self.assertIsNone(windows.detect_document(1, self.CONFIG, notes))
         self.assertTrue(any("chrome" in note for note in notes))
-        self.assertTrue(any("mapped" in note for note in notes))
+        self.assertTrue(any("open_files" in note for note in notes))
+
+
+class OwnershipFileTest(unittest.TestCase):
+    LINE = (
+        "4:742DEA58-ED6B-4402-BC11-20DFC6D08040:16488de86a-2141-dfa1-cd6c-3f661209bb:"
+        "ACCACD33-5596-43EA-B34B-92DD925E66C8:C:\\Users\\me\\Art\\Summer.clip"
+    )
+
+    def test_reads_the_drive_path_after_the_guids(self):
+        self.assertEqual(
+            windows.parse_ownership_line(self.LINE),
+            r"C:\Users\me\Art\Summer.clip",
+        )
+
+    def test_reads_a_unc_path(self):
+        self.assertEqual(
+            windows.parse_ownership_line(r"4:guid:\\server\share\cover.clip"),
+            r"\\server\share\cover.clip",
+        )
+
+    def test_ignores_a_line_without_a_path(self):
+        self.assertIsNone(windows.parse_ownership_line("4:guid:session:document"))
+        self.assertIsNone(windows.parse_ownership_line(""))
+        self.assertIsNone(windows.parse_ownership_line("   "))
+
+    def test_read_ownership_paths_skips_missing_files(self):
+        self.assertEqual(windows.read_ownership_paths(r"C:\definitely-missing-owner.txt"), [])
+
+    def test_read_ownership_paths_parses_each_line(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "owner.txt"
+            path.write_text(self.LINE + "\n4:guid:session:id:D:\\other.psd\n", encoding="utf-8")
+            self.assertEqual(
+                windows.read_ownership_paths(str(path)),
+                [r"C:\Users\me\Art\Summer.clip", r"D:\other.psd"],
+            )
+
+    def test_open_document_paths_prefers_the_ownership_file(self):
+        with mock.patch.object(windows, "read_ownership_paths", return_value=[r"C:\Art\Summer.clip"]), \
+             mock.patch.object(windows, "_mapped_document_paths", return_value=[r"C:\Art\old.clip"]):
+            self.assertEqual(
+                windows.open_document_paths(1, [".clip"]),
+                [r"C:\Art\Summer.clip"],
+            )
+
+    def test_open_document_paths_falls_back_to_mapped_files(self):
+        with mock.patch.object(windows, "read_ownership_paths", return_value=[]), \
+             mock.patch.object(windows, "_mapped_document_paths", return_value=[r"C:\Art\Portrait.clip"]):
+            self.assertEqual(
+                windows.open_document_paths(1, [".clip"]),
+                [r"C:\Art\Portrait.clip"],
+            )
 
 
 class NtToDosTest(unittest.TestCase):

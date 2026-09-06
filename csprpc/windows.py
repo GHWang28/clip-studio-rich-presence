@@ -2,9 +2,9 @@
 
 Everything here goes through ``ctypes`` against DLLs that are part of Windows,
 so there is nothing to install. Unlike macOS, reading another application's window titles needs no privacy
-permission. Recent CLIP STUDIO PAINT builds still leave the canvas name out
-of the top-level title, so we also look at child windows and at artwork
-files the process has mapped.
+permission. Recent CLIP STUDIO PAINT builds leave the canvas name out of
+every Win32 title, so we also look at CELSYS's live ownership file and at
+artwork files the process has mapped.
 
 This module imports cleanly on any platform; the Win32 entry points are only
 bound when actually running on Windows, and calling them elsewhere raises.
@@ -13,6 +13,7 @@ bound when actually running on Windows, and calling them elsewhere raises.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -46,6 +47,14 @@ _OPEN_FILE_EXCLUDES = (
     "/temp/",
     "/fonts/",
 )
+
+# CELSYS writes the canvas currently open in PAINT here. Recent builds keep
+# the file name out of the window title, so this is the reliable source.
+_OWNERSHIP_RELATIVE = os.path.join("CELSYS", "promenade", "ownership", "owner.txt")
+
+# A drive path or UNC path at the end of an ownership line. The fields before
+# it are GUIDs, and the path itself contains colons (``C:\...``).
+_OWNERSHIP_PATH_RE = re.compile(r"(?:(?<=:)|^)(?:[A-Za-z]:\\|\\\\)[^\r\n]+$")
 
 # Hides the console window that would otherwise flash for each helper command.
 _CREATE_NO_WINDOW = 0x08000000
@@ -411,13 +420,48 @@ def _query_drive_map() -> Dict[str, str]:
     return mapping
 
 
-def open_document_paths(pid: int, extensions: Sequence[str], timeout: float = 5.0) -> List[str]:
-    """Artwork files mapped into the process, newest first.
+def default_ownership_path() -> Optional[str]:
+    """Where CLIP STUDIO PAINT records the canvas it currently has open."""
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return None
+    return os.path.join(appdata, _OWNERSHIP_RELATIVE)
 
-    CLIP STUDIO PAINT keeps the canvas out of the top-level window title, so
-    this is the reliable way to see a saved file on Windows. Unsaved canvases
-    are not on disk and cannot be found this way.
+
+def parse_ownership_line(line: str) -> Optional[str]:
+    """Extract a document path from one CELSYS ``owner.txt`` line.
+
+    A typical line is colon-separated GUIDs followed by a Windows path::
+
+        4:<window-class>:<session>:<document>:C:\\Users\\me\\Art\\Summer.clip
     """
+    text = (line or "").strip()
+    if not text:
+        return None
+    match = _OWNERSHIP_PATH_RE.search(text)
+    return match.group(0).rstrip() if match else None
+
+
+def read_ownership_paths(path: Optional[str] = None) -> List[str]:
+    """Document paths from the CELSYS ownership file, in file order."""
+    target = default_ownership_path() if path is None else path
+    if not target or not os.path.isfile(target):
+        return []
+    try:
+        with open(target, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return []
+    found: List[str] = []
+    for line in text.splitlines():
+        item = parse_ownership_line(line)
+        if item and item not in found:
+            found.append(item)
+    return found
+
+
+def _mapped_document_paths(pid: int) -> List[str]:
+    """Artwork files mapped into the process. Windows only."""
     if not IS_WINDOWS:
         return []
     rights = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION
@@ -434,9 +478,10 @@ def open_document_paths(pid: int, extensions: Sequence[str], timeout: float = 5.
             )
             if not got:
                 break
-            if info.State == MEM_COMMIT and info.Type == MEM_MAPPED and info.AllocationBase:
+            base = info.AllocationBase
+            if info.State == MEM_COMMIT and info.Type == MEM_MAPPED and base:
                 name = ctypes.create_unicode_buffer(32768)
-                if _psapi.GetMappedFileNameW(handle, info.AllocationBase, name, 32768):
+                if _psapi.GetMappedFileNameW(handle, ctypes.c_void_p(base), name, 32768):
                     paths.append(nt_to_dos(name.value))
             region = int(info.RegionSize or 0)
             nxt = address + region
@@ -445,7 +490,21 @@ def open_document_paths(pid: int, extensions: Sequence[str], timeout: float = 5.
             address = nxt
     finally:
         _kernel32.CloseHandle(handle)
-    return filter_document_paths(paths, extensions, _OPEN_FILE_EXCLUDES)
+    return paths
+
+
+def open_document_paths(pid: int, extensions: Sequence[str], timeout: float = 5.0) -> List[str]:
+    """Artwork files CLIP STUDIO PAINT currently has open, newest first.
+
+    Recent builds keep the canvas out of every window title. The ownership
+    file CELSYS writes for the open document is the reliable source; mapped
+    memory is a fallback. Unsaved canvases are not on disk and cannot be
+    found this way.
+    """
+    owned = filter_document_paths(read_ownership_paths(), extensions, _OPEN_FILE_EXCLUDES)
+    if owned:
+        return owned
+    return filter_document_paths(_mapped_document_paths(pid), extensions, _OPEN_FILE_EXCLUDES)
 
 
 def detect_document(
@@ -487,7 +546,7 @@ def detect_document(
                     path=paths[0],
                     source="open_files",
                 )
-            notes.append("open_files found no artwork files mapped by the process")
+            notes.append("open_files found no artwork files")
 
     return None
 

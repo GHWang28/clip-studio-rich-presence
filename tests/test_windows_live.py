@@ -63,9 +63,12 @@ class LiveWin32Test(unittest.TestCase):
     def test_full_observation(self):
         cfg = copy.deepcopy(config_module.DEFAULTS)
         observation = windows.observe(cfg)
-        # CLIP STUDIO PAINT is not installed on a CI runner.
-        self.assertFalse(observation.running)
-        self.assertIsNone(observation.document)
+        self.assertIsInstance(observation.running, bool)
+        if observation.running:
+            self.assertIsNotNone(observation.process)
+        else:
+            # CLIP STUDIO PAINT is not installed on a CI runner.
+            self.assertIsNone(observation.document)
 
     def test_observation_of_a_stand_in_process(self):
         cfg = copy.deepcopy(config_module.DEFAULTS)
@@ -77,8 +80,21 @@ class LiveWin32Test(unittest.TestCase):
         self.assertGreaterEqual(observation.idle_seconds, 0.0)
 
     def test_endpoint_discovery_uses_named_pipes(self):
-        # No Discord on a runner, so this must simply return None, not raise.
-        self.assertIsNone(discord_ipc.find_endpoint())
+        # A runner has no Discord, so None is the usual result; a developer
+        # machine may already have a named pipe. Either way, do not raise.
+        endpoint = discord_ipc.find_endpoint()
+        self.assertTrue(endpoint is None or isinstance(endpoint, str))
+        if endpoint is not None:
+            self.assertIn("discord-ipc-", endpoint)
+
+    def test_ownership_helpers_are_safe(self):
+        path = windows.default_ownership_path()
+        self.assertTrue(path is None or path.endswith("owner.txt"))
+        found = windows.read_ownership_paths()
+        self.assertIsInstance(found, list)
+        for item in found:
+            self.assertIsInstance(item, str)
+            self.assertTrue(item)
 
     def test_config_lands_in_appdata(self):
         saved = os.environ.pop("CSPRPC_HOME", None)

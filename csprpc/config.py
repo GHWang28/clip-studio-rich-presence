@@ -44,9 +44,12 @@ DEFAULTS: Dict[str, Any] = {
     "document": {
         # Tried in order until one yields a document name.
         #   window_title -> reads the canvas window title. Needs Accessibility
-        #                   on macOS; needs no permission on Windows.
-        #   open_files   -> inspects files the process has open. macOS only,
-        #                   and only useful as an Accessibility fallback.
+        #                   on macOS; needs no permission on Windows. Recent
+        #                   Windows builds leave the canvas name out of the
+        #                   title, so this often finds nothing there.
+        #   open_files   -> inspects files the process has open. On macOS that
+        #                   is lsof. On Windows it is CELSYS's ownership file,
+        #                   then memory-mapped artwork as a fallback.
         "strategies": ["window_title", "open_files"],
         "extensions": [
             ".clip",

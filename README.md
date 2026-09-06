@@ -276,7 +276,7 @@ operating system already provides:
 | Is it running? | `ps`, confirmed against the bundle ID | `CreateToolhelp32Snapshot` |
 | Are you in it? | `lsappinfo front` | `GetForegroundWindow` |
 | Are you there? | `ioreg` HID idle time | `GetLastInputInfo` |
-| Which file? | window title via System Events | `EnumWindows` + `GetWindowTextW` |
+| Which file? | window title via System Events | CELSYS ownership file, then mapped files |
 | Permission needed | **Accessibility** | **none** |
 
 That snapshot becomes a Discord activity, which is written to Discord's local
@@ -299,8 +299,11 @@ STUDIO PAINT is not holding open, and it cannot tell which canvas is in front
 when several are open. The presence still works, it just may show nothing where
 a file name would go.
 
-This fallback does not exist on Windows, and is not needed there, because
-reading window titles requires no permission in the first place.
+On Windows the same `open_files` strategy reads the ownership file CELSYS
+writes for the canvas currently open in PAINT (`%APPDATA%\CELSYS\promenade\ownership\owner.txt`).
+Recent CLIP STUDIO PAINT builds leave the file name out of every window title,
+so that file is what makes the document name show up. Unsaved canvases are
+not recorded there and cannot be named.
 
 Set `document.strategies` to reorder or disable either approach.
 
@@ -316,7 +319,10 @@ not the public key or a bot token. Reset it by setting it to an empty string.
 
 **The file name is missing but everything else works.** On macOS, Accessibility
 is not granted, or no canvas is open. `doctor` prints the window titles it can
-see, which shows which of the two it is.
+see, which shows which of the two it is. On Windows, recent CLIP STUDIO PAINT
+builds do not put the canvas in the window title; the name comes from CELSYS's
+ownership file instead. Open a *saved* canvas and run `doctor` again. A new
+unsaved illustration has no file on disk, so there is nothing to pick up.
 
 **A palette name shows instead of my file.** Add the offending title to
 `document.ignore_titles` in the config. `watch` shows what is being picked up.
