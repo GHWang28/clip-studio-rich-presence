@@ -39,6 +39,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     setup_logging(getattr(args, "verbose", False))
 
+    if args.command is None:
+        # Double-clicked, or run bare: open the window.
+        args.command = "gui"
+        args.handler = cmd_gui
+        args.hidden = False
+
     if not system.IS_SUPPORTED and args.command != "config":
         print(
             "csprpc supports macOS and Windows; this is {}.".format(sys.platform),
@@ -62,7 +68,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version="csprpc {}".format(__version__))
     parser.add_argument("-v", "--verbose", action="store_true", help="log debug detail")
-    sub = parser.add_subparsers(dest="command", required=True)
+    # Not required: launching with no arguments, as double-clicking does,
+    # opens the window.
+    sub = parser.add_subparsers(dest="command")
+
+    gui_cmd = sub.add_parser("gui", help="open the window (the default)")
+    gui_cmd.add_argument(
+        "--hidden", action="store_true", help="start minimised, for launching at login"
+    )
+    gui_cmd.set_defaults(handler=cmd_gui)
 
     run_cmd = sub.add_parser("run", help="watch CLIP STUDIO PAINT and update Discord")
     run_cmd.add_argument(
@@ -149,6 +163,16 @@ def _make_tracker(cfg: Dict[str, Any]) -> Tracker:
         config_module.stats_path(),
         save_interval=float(cfg.get("stats", {}).get("save_interval_seconds", 60)),
     )
+
+
+# -- window ---------------------------------------------------------------
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    # Imported lazily so the rest of the CLI still works without Tk.
+    from csprpc import gui
+
+    return gui.launch(start_hidden=bool(getattr(args, "hidden", False)))
 
 
 # -- run ------------------------------------------------------------------
@@ -517,28 +541,35 @@ def _app_location() -> Path:
 
 
 def _background_launcher() -> str:
-    """Executable for the background service.
+    """Executable to start at login.
 
-    Prefers a console-less variant so no window appears at every login:
-    pythonw.exe when running from source, csprpcw.exe when running frozen.
+    A frozen build is already windowed, so it needs no console-less sibling.
+    From source on Windows, pythonw.exe keeps a console from flashing up.
     """
     executable = Path(sys.executable)
-    if IS_WINDOWS:
-        sibling = "csprpcw.exe" if _is_frozen() else "pythonw.exe"
-        candidate = executable.with_name(sibling)
+    if IS_WINDOWS and not _is_frozen():
+        candidate = executable.with_name("pythonw.exe")
         if candidate.exists():
             return str(candidate)
     return str(executable)
 
 
 def _service_argv() -> List[str]:
-    """Command line that starts the background service.
+    """Command line that starts the app at login, minimised.
 
     A frozen build is its own entry point; `-m csprpc` only works from source.
     """
     if _is_frozen():
-        return [_background_launcher(), "run"]
-    return [_background_launcher(), "-m", "csprpc", "run"]
+        return [_background_launcher(), "gui", "--hidden"]
+    return [_background_launcher(), "-m", "csprpc", "gui", "--hidden"]
+
+
+def service_installed() -> bool:
+    """Whether a login item exists. The GUI checkbox reads this."""
+    if IS_WINDOWS:
+        code, _, _ = _schtasks(["/Query", "/TN", SCHEDULED_TASK_NAME])
+        return code == 0
+    return _agent_path().exists()
 
 
 # A launch agent runs without the privileges your terminal has been granted,
@@ -633,8 +664,9 @@ def _launchd_service_install(_args: argparse.Namespace) -> int:
         "Label": LAUNCH_AGENT_LABEL,
         "ProgramArguments": _service_argv(),
         "RunAtLoad": True,
-        "KeepAlive": True,
-        "ProcessType": "Background",
+        # Deliberately not KeepAlive: closing the window is how you stop the
+        # presence, and launchd would otherwise reopen it immediately.
+        "KeepAlive": False,
         "StandardOutPath": str(log_file),
         "StandardErrorPath": str(log_file),
     }

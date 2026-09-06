@@ -14,15 +14,20 @@ class ServiceCommandTest(unittest.TestCase):
     def test_from_source_it_runs_the_module(self):
         with mock.patch.object(cli, "_is_frozen", return_value=False):
             argv = cli._service_argv()
-        self.assertEqual(argv[1:], ["-m", "csprpc", "run"])
+        self.assertEqual(argv[1:], ["-m", "csprpc", "gui", "--hidden"])
         self.assertTrue(argv[0])
 
     def test_frozen_it_runs_itself(self):
         # `-m csprpc` is meaningless inside a bundle: the exe is the entry point.
         with mock.patch.object(cli, "_is_frozen", return_value=True):
             argv = cli._service_argv()
-        self.assertEqual(argv[1:], ["run"])
+        self.assertEqual(argv[1:], ["gui", "--hidden"])
         self.assertNotIn("-m", argv)
+
+    def test_login_starts_the_window_minimised(self):
+        # Otherwise logging in would pop the window open every time.
+        with mock.patch.object(cli, "_is_frozen", return_value=True):
+            self.assertIn("--hidden", cli._service_argv())
 
     def test_app_location_from_source_is_the_project(self):
         with mock.patch.object(cli, "_is_frozen", return_value=False):
@@ -32,13 +37,15 @@ class ServiceCommandTest(unittest.TestCase):
         with mock.patch.object(cli, "_is_frozen", return_value=True):
             self.assertEqual(cli._app_location(), Path(sys.executable).resolve().parent)
 
-    def test_windows_frozen_prefers_the_windowless_executable(self):
+    def test_windows_frozen_uses_itself(self):
+        # The single build is already windowed, so there is no quiet sibling
+        # to prefer any more.
         exe = Path(r"C:\Apps\csprpc.exe")
         with mock.patch.object(cli, "_is_frozen", return_value=True), \
              mock.patch.object(cli, "IS_WINDOWS", True), \
              mock.patch.object(cli.sys, "executable", str(exe)), \
-             mock.patch.object(Path, "exists", lambda self: self.name == "csprpcw.exe"):
-            self.assertEqual(cli._background_launcher(), str(exe.with_name("csprpcw.exe")))
+             mock.patch.object(Path, "exists", lambda self: True):
+            self.assertEqual(cli._background_launcher(), str(exe))
 
     def test_windows_from_source_prefers_pythonw(self):
         exe = Path(r"C:\Python\python.exe")
@@ -48,9 +55,9 @@ class ServiceCommandTest(unittest.TestCase):
              mock.patch.object(Path, "exists", lambda self: self.name == "pythonw.exe"):
             self.assertEqual(cli._background_launcher(), str(exe.with_name("pythonw.exe")))
 
-    def test_falls_back_when_no_windowless_variant_exists(self):
-        exe = Path(r"C:\Apps\csprpc.exe")
-        with mock.patch.object(cli, "_is_frozen", return_value=True), \
+    def test_falls_back_when_pythonw_is_absent(self):
+        exe = Path(r"C:\Python\python.exe")
+        with mock.patch.object(cli, "_is_frozen", return_value=False), \
              mock.patch.object(cli, "IS_WINDOWS", True), \
              mock.patch.object(cli.sys, "executable", str(exe)), \
              mock.patch.object(Path, "exists", lambda self: False):

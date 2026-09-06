@@ -147,6 +147,12 @@ _SCALAR_TYPES: Dict[str, type] = {
     "presence.small_image_idle": str,
     "presence.small_text_active": str,
     "presence.small_text_idle": str,
+    "presence.templates.working.details": str,
+    "presence.templates.working.state": str,
+    "presence.templates.idle.details": str,
+    "presence.templates.idle.state": str,
+    "presence.templates.no_document.details": str,
+    "presence.templates.no_document.state": str,
     "stats.save_interval_seconds": float,
 }
 
@@ -228,8 +234,12 @@ def get_dotted(config: Dict[str, Any], dotted: str) -> Any:
     return node
 
 
-def set_dotted(config: Dict[str, Any], dotted: str, raw_value: str) -> Any:
-    """Set a scalar setting from its command line string form."""
+def set_dotted(config: Dict[str, Any], dotted: str, raw_value: Any) -> Any:
+    """Set a scalar setting from a string, or from an already-typed value.
+
+    The command line always supplies strings; the graphical interface hands
+    over real bools and numbers straight from its widgets.
+    """
     if dotted not in _SCALAR_TYPES:
         raise ConfigError(
             "{} is not settable from the command line; edit the config file "
@@ -248,20 +258,24 @@ def set_dotted(config: Dict[str, Any], dotted: str, raw_value: str) -> Any:
     return value
 
 
-def _coerce(dotted: str, raw: str, kind: type) -> Any:
+def _coerce(dotted: str, raw: Any, kind: type) -> Any:
     if kind is bool:
-        lowered = raw.strip().lower()
+        if isinstance(raw, bool):
+            return raw
+        lowered = str(raw).strip().lower()
         if lowered in ("1", "true", "yes", "on"):
             return True
         if lowered in ("0", "false", "no", "off"):
             return False
         raise ConfigError("{} expects true or false, got {!r}".format(dotted, raw))
     if kind is float:
+        if isinstance(raw, bool):
+            raise ConfigError("{} expects a number, got {!r}".format(dotted, raw))
         try:
             return float(raw)
-        except ValueError:
+        except (TypeError, ValueError):
             raise ConfigError("{} expects a number, got {!r}".format(dotted, raw))
-    return raw
+    return raw if isinstance(raw, str) else str(raw)
 
 
 def validate(config: Dict[str, Any]) -> List[str]:

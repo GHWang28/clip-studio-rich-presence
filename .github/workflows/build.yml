@@ -12,11 +12,16 @@ permissions:
 
 env:
   PYINSTALLER_ARGS: >-
-    --onefile --clean --noconfirm
+    --clean --noconfirm
     --paths .
     --collect-submodules csprpc
     --hidden-import csprpc.macos
     --hidden-import csprpc.windows
+    --hidden-import csprpc.gui
+    --hidden-import tkinter
+    --hidden-import tkinter.ttk
+    --hidden-import tkinter.messagebox
+    --hidden-import tkinter.scrolledtext
 
 jobs:
   test:
@@ -70,19 +75,30 @@ jobs:
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
 
-      - name: Build console executable
-        run: pyinstaller ${{ env.PYINSTALLER_ARGS }} --name csprpc --console packaging/csprpc_entry.py
-
-      # A second, console-less build so the logon task shows no window.
-      - name: Build windowless executable
-        if: runner.os == 'Windows'
-        run: pyinstaller ${{ env.PYINSTALLER_ARGS }} --name csprpcw --noconsole packaging/csprpc_entry.py
-
-      - name: Smoke test the executable
+      # Windowed: this is a GUI app, and it means no console flashes up when
+      # it starts at login. On macOS it also yields the .app bundle that
+      # Finder needs in order to launch it at all.
+      - name: Build the app
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$RUNNER_OS" = "Windows" ]; then BIN=./dist/csprpc.exe; else BIN=./dist/csprpc; fi
+          # One .exe is the whole point on Windows. A macOS .app cannot be a
+          # single file, and PyInstaller rejects onefile+windowed there.
+          if [ "$RUNNER_OS" = "Windows" ]; then MODE=--onefile; else MODE=--onedir; fi
+          pyinstaller ${{ env.PYINSTALLER_ARGS }} "$MODE" \
+            --name csprpc --windowed packaging/csprpc_entry.py
+
+      - name: Smoke test the app
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Drive the CLI through the same binary we ship. Never invoke it
+          # bare, which would open the window and hang the job.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BIN=./dist/csprpc.exe
+          else
+            BIN=./dist/csprpc.app/Contents/MacOS/csprpc
+          fi
           export CSPRPC_HOME="$PWD/_smoke"
           "$BIN" --version
           "$BIN" config set client_id 123456789012345678
@@ -94,25 +110,23 @@ jobs:
           "$BIN" doctor || true
           rm -rf "$CSPRPC_HOME"
 
-      # Release assets are stored as plain files, so a bare macOS binary
-      # arrives without its execute bit. A tarball keeps it, and extracting
-      # with `tar` does not mark the contents quarantined the way unzipping
-      # in Finder does, which saves the user two commands.
-      - name: Package the macOS build
+      # A .app is a directory, so it has to be archived to survive as a
+      # release asset at all. A tarball also keeps the execute bit, and
+      # extracting with `tar` does not mark the contents quarantined the way
+      # unzipping in Finder does, which saves the user two commands.
+      - name: Package the macOS app
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          chmod +x dist/csprpc
-          tar -czf "${{ matrix.artifact }}.tar.gz" -C dist csprpc
-          tar -tvzf "${{ matrix.artifact }}.tar.gz"
+          tar -czf "${{ matrix.artifact }}.tar.gz" -C dist csprpc.app
+          tar -tzf "${{ matrix.artifact }}.tar.gz" | head -5
 
-      - name: Upload executable
+      - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
             dist/csprpc.exe
-            dist/csprpcw.exe
             ${{ matrix.artifact }}.tar.gz
           if-no-files-found: error
           retention-days: 30
@@ -134,7 +148,6 @@ jobs:
           set -euo pipefail
           mkdir -p release
           cp artifacts/csprpc-windows/csprpc.exe                       release/csprpc.exe
-          cp artifacts/csprpc-windows/csprpcw.exe                      release/csprpcw.exe
           cp artifacts/csprpc-macos-arm64/csprpc-macos-arm64.tar.gz    release/
           cp artifacts/csprpc-macos-x86_64/csprpc-macos-x86_64.tar.gz  release/
           ls -la release

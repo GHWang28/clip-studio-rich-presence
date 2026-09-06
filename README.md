@@ -10,6 +10,11 @@ Portrait_final.clip *
 ⏱ 47:12 elapsed
 ```
 
+Open the app, and it starts. A small window lets you reword what Discord shows,
+decide how much it says about your files, and check what is being detected.
+Hide it and it keeps running in the background; close it and your presence
+stops.
+
 Runs on **macOS and Windows**, on the Python each already has, with **no
 dependencies** — no `pip install`, no Node, no Homebrew.
 
@@ -30,31 +35,30 @@ Nothing else to install; Python is bundled inside.
 
 | File | For |
 | --- | --- |
-| `csprpc.exe` | Windows — the one you run |
-| `csprpcw.exe` | Windows — same thing without a console window, used by `service install` |
+| `csprpc.exe` | Windows 10/11 |
 | `csprpc-macos-arm64.tar.gz` | Apple Silicon Macs (M1 and later) |
 | `csprpc-macos-x86_64.tar.gz` | Intel Macs |
 
-Keep both `.exe` files in the same folder if you want `service install` to work.
+One file per machine. Double-click it and the window opens.
+
 On Windows, SmartScreen shows "Windows protected your PC" the first time —
 choose **More info → Run anyway**.
 
-On macOS, extract it **in Terminal**:
+On macOS, extract it **in Terminal**, then double-click `csprpc.app`:
 
 ```sh
 tar -xzf csprpc-macos-arm64.tar.gz
-./csprpc doctor
+open csprpc.app
 ```
 
-That is deliberately not a double-click. The binary is only ad-hoc signed —
-Apple notarization needs a paid developer account — so macOS will refuse to run
-it if it is marked as quarantined, with a dialog claiming it cannot check the
-file for malware. Extracting with `tar` avoids the mark entirely; unarchiving in
-Finder applies it to the contents. If you do hit the dialog, clear the mark by
-hand:
+Unarchiving in Finder instead of with `tar` is worth avoiding. The app is only
+ad-hoc signed — Apple notarization needs a paid developer account — so if macOS
+marks it as quarantined it refuses to open it, with a dialog claiming it cannot
+check the file for malware. Extracting with `tar` never applies that mark, while
+Finder does. If you hit the dialog anyway, clear the mark by hand:
 
 ```sh
-xattr -d com.apple.quarantine csprpc    # or: xattr -c csprpc
+xattr -dr com.apple.quarantine csprpc.app    # or: xattr -cr csprpc.app
 ```
 
 Running [from source](#option-b--run-from-source) sidesteps all of this, since
@@ -68,13 +72,14 @@ Needs Python 3.8+ (preinstalled on macOS; on Windows get it from
 ```sh
 git clone https://github.com/GHWang28/clip-studio-rich-presence.git
 cd clip-studio-rich-presence
-./csprpc.sh doctor      # macOS
-csprpc.cmd doctor       # Windows
+./csprpc.sh             # macOS — opens the window
+csprpc.cmd              # Windows — opens the window
 ```
 
+Add a subcommand to get the command line instead, e.g. `./csprpc.sh doctor`.
 Throughout this README, `csprpc` means whichever of these you are using:
 `./csprpc.sh` (macOS source), `csprpc.cmd` (Windows source), or the downloaded
-executable.
+app.
 
 ## Setup
 
@@ -96,49 +101,55 @@ whichever app you launch this from — Terminal, iTerm, or your editor. Check
 
 If you would rather not grant this, see [Running without Accessibility](#running-without-accessibility-macos).
 
-### 2. Check everything
+### 2. Open the app
 
-```sh
-./csprpc.sh doctor
-```
+Double-click it, and the presence starts immediately. The window has four tabs:
 
-This verifies each piece separately — permissions, whether CLIP STUDIO PAINT is
-detected, whether Discord is reachable, and whether the handshake is accepted —
-and tells you how to fix whatever is not working. Run it with CLIP STUDIO PAINT
-open and a canvas loaded for the most useful output.
+| Tab | What it is for |
+| --- | --- |
+| **Status** | What Discord is showing right now, plus today's, this session's and your all-time totals |
+| **Presence** | The wording of each line, the tooltips, and which clock Discord counts up from |
+| **Behaviour** | Privacy, how often to check, when to count you as away |
+| **Diagnostics** | The same checks the `doctor` command runs, in a panel |
 
-### 3. Run it
+If something is not working, start on **Diagnostics** and press **Run checks**.
+It tests permissions, whether CLIP STUDIO PAINT is detected, whether Discord is
+reachable and whether the handshake is accepted, and says how to fix whatever is
+not working. It is most useful with CLIP STUDIO PAINT open and a canvas loaded.
 
-```sh
-./csprpc.sh run
-```
+### 3. Hide it, or quit it
 
-Leave it running while you draw. Press `Ctrl-C` to stop; your presence is
-cleared and your tracked time is saved on the way out.
+- **Hide** minimises the window. Everything keeps running, and your presence
+  stays up. Click the icon in the Dock or taskbar to bring it back.
+- **Quit**, or closing the window, stops the presence. Discord clears your
+  activity and your tracked time is saved on the way out.
 
-To start it automatically at login instead:
-
-```sh
-./csprpc.sh service install
-```
-
-On macOS that installs a launch agent; on Windows it registers a Task Scheduler
-task that runs at logon under `pythonw.exe`, so no console window appears.
+Ticking **Start at login** launches the app minimised whenever you log in. On
+macOS that installs a launch agent; on Windows it registers a Task Scheduler
+task. Neither one relaunches the app after you quit, so quitting stays quit
+until your next login.
 
 > **macOS only: where you keep this project matters for the launch agent.** A
 > launch agent does not inherit the folder access your terminal has been
 > granted, so if the project lives in `~/Desktop`, `~/Documents` or
 > `~/Downloads`, macOS blocks it from reading its own code and it will not
-> start. `service install` detects this and tells you; the fix is to move the
+> start. **Start at login** detects this and tells you; the fix is to move the
 > project somewhere unprotected (`~/csprpc` works) or grant Full Disk Access to
-> your `python3`. Running `./csprpc.sh run` in a terminal is unaffected either
-> way, and Windows has no equivalent restriction.
+> your `python3`. Opening the app yourself is unaffected either way, and Windows
+> has no equivalent restriction. Downloaded builds only hit this if you keep the
+> app in one of those folders.
 
 ## Commands
 
+Everything most people need is in the window. The command line is still there
+for scripting and for running from source — add a subcommand to the app or to
+`./csprpc.sh`:
+
 | Command | What it does |
 | --- | --- |
-| `run` | Watch CLIP STUDIO PAINT and update Discord |
+| *(none)* | Open the window |
+| `gui --hidden` | Open the window minimised, which is what starting at login does |
+| `run` | Watch CLIP STUDIO PAINT and update Discord, with no window |
 | `run --dry-run` | Track time and print the presence without contacting Discord |
 | `watch` | Print what is detected each poll, for tuning detection |
 | `doctor` | Diagnose permissions, detection and the Discord connection |
@@ -149,6 +160,9 @@ task that runs at logon under `pythonw.exe`, so no console window appears.
 `watch` is the one to reach for if the wrong thing shows up on your profile: it
 prints the detected document, whether the app is frontmost, and your idle time
 every few seconds, without sending anything to Discord.
+
+The downloaded builds are windowed applications, so on Windows they have no
+console to print to. Run from source if you want the command line.
 
 ## How time is tracked
 

@@ -236,6 +236,20 @@ class PresenceDaemon:
         self._seen_notes: set = set()
         self.stopped = False
 
+    # -- observable state --------------------------------------------------
+
+    @property
+    def connected(self) -> bool:
+        """Whether Discord is currently reachable."""
+        return self._ipc is not None and self._ipc.connected
+
+    @property
+    def discord_user(self) -> Optional[str]:
+        """Username Discord reported at handshake, when connected."""
+        if self._ipc is None or not self._ipc.user:
+            return None
+        return self._ipc.user.get("username")
+
     # -- one iteration -----------------------------------------------------
 
     def step(self) -> Snapshot:
