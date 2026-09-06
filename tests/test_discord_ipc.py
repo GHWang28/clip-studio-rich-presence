@@ -17,6 +17,9 @@ class EndpointDiscoveryTest(unittest.TestCase):
     def test_posix_searches_the_temporary_directories(self):
         with mock.patch.object(discord_ipc, "IS_WINDOWS", False):
             endpoints = discord_ipc.candidate_endpoints()
+        # Which directories and names are searched is the point here; the
+        # separator is just an artifact of the host running the test.
+        endpoints = [e.replace("\\", "/") for e in endpoints]
         self.assertTrue(any(e.endswith("/discord-ipc-0") for e in endpoints))
         self.assertTrue(any(e.startswith("/tmp/") for e in endpoints))
 
@@ -87,7 +90,8 @@ class DiscordIPCTest(unittest.TestCase):
         import tempfile
 
         saved = os.environ.get("TMPDIR")
-        empty = tempfile.mkdtemp(prefix="nodiscord-", dir="/tmp")
+        # No dir=: there is no /tmp on Windows.
+        empty = tempfile.mkdtemp(prefix="nodiscord-")
         os.environ["TMPDIR"] = empty
         # /tmp itself is in the search path, so only assert when it is clean.
         try:
