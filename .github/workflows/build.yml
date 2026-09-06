@@ -94,14 +94,26 @@ jobs:
           "$BIN" doctor || true
           rm -rf "$CSPRPC_HOME"
 
+      # Release assets are stored as plain files, so a bare macOS binary
+      # arrives without its execute bit. A tarball keeps it, and extracting
+      # with `tar` does not mark the contents quarantined the way unzipping
+      # in Finder does, which saves the user two commands.
+      - name: Package the macOS build
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          chmod +x dist/csprpc
+          tar -czf "${{ matrix.artifact }}.tar.gz" -C dist csprpc
+          tar -tvzf "${{ matrix.artifact }}.tar.gz"
+
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
-            dist/csprpc
             dist/csprpc.exe
             dist/csprpcw.exe
+            ${{ matrix.artifact }}.tar.gz
           if-no-files-found: error
           retention-days: 30
 
@@ -121,11 +133,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          cp artifacts/csprpc-windows/csprpc.exe        release/csprpc.exe
-          cp artifacts/csprpc-windows/csprpcw.exe       release/csprpcw.exe
-          cp artifacts/csprpc-macos-arm64/csprpc        release/csprpc-macos-arm64
-          cp artifacts/csprpc-macos-x86_64/csprpc       release/csprpc-macos-x86_64
-          chmod +x release/csprpc-macos-*
+          cp artifacts/csprpc-windows/csprpc.exe                       release/csprpc.exe
+          cp artifacts/csprpc-windows/csprpcw.exe                      release/csprpcw.exe
+          cp artifacts/csprpc-macos-arm64/csprpc-macos-arm64.tar.gz    release/
+          cp artifacts/csprpc-macos-x86_64/csprpc-macos-x86_64.tar.gz  release/
           ls -la release
 
       - name: Publish release

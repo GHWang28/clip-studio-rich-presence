@@ -32,21 +32,33 @@ Nothing else to install; Python is bundled inside.
 | --- | --- |
 | `csprpc.exe` | Windows — the one you run |
 | `csprpcw.exe` | Windows — same thing without a console window, used by `service install` |
-| `csprpc-macos-arm64` | Apple Silicon Macs (M1 and later) |
-| `csprpc-macos-x86_64` | Intel Macs |
+| `csprpc-macos-arm64.tar.gz` | Apple Silicon Macs (M1 and later) |
+| `csprpc-macos-x86_64.tar.gz` | Intel Macs |
 
-Downloaded binaries are unsigned, so each OS will object once:
-
-```sh
-# macOS: make it runnable and clear the download quarantine
-chmod +x csprpc-macos-arm64
-xattr -d com.apple.quarantine csprpc-macos-arm64
-```
-
+Keep both `.exe` files in the same folder if you want `service install` to work.
 On Windows, SmartScreen shows "Windows protected your PC" the first time —
 choose **More info → Run anyway**.
 
-Keep both `.exe` files in the same folder if you want `service install` to work.
+On macOS, extract it **in Terminal**:
+
+```sh
+tar -xzf csprpc-macos-arm64.tar.gz
+./csprpc doctor
+```
+
+That is deliberately not a double-click. The binary is only ad-hoc signed —
+Apple notarization needs a paid developer account — so macOS will refuse to run
+it if it is marked as quarantined, with a dialog claiming it cannot check the
+file for malware. Extracting with `tar` avoids the mark entirely; unarchiving in
+Finder applies it to the contents. If you do hit the dialog, clear the mark by
+hand:
+
+```sh
+xattr -d com.apple.quarantine csprpc    # or: xattr -c csprpc
+```
+
+Running [from source](#option-b--run-from-source) sidesteps all of this, since
+nothing is downloaded.
 
 ### Option B — run from source
 
