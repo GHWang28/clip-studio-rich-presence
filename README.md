@@ -325,12 +325,19 @@ CI runs the suite on both macOS and Windows for every push, so the Win32 code
 is exercised on a real Windows machine even if you only own a Mac.
 
 Builds are produced by PyInstaller on each platform — a Windows `.exe` cannot be
-cross-compiled from macOS, which is why this goes through CI. To publish:
+cross-compiled from macOS, which is why this goes through CI. To publish, bump
+the version in both `pyproject.toml` and `csprpc/__init__.py`, push that to
+`main`, then tag it:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+python3 packaging/check_version.py v0.2.1   # optional: catch a half-bump early
+git tag -a v0.2.1 -m "csprpc v0.2.1"
+git push origin v0.2.1
 ```
+
+The tag must start with `v`; anything else builds but never publishes. CI runs
+that same version check itself and fails the build if the tag disagrees with
+either file, so a mismatched release cannot ship.
 
 That runs the tests, builds for Windows, Apple Silicon and Intel, smoke tests
 each binary, and attaches them all to a GitHub release it creates for the tag.

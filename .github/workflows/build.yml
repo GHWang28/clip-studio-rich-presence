@@ -35,9 +35,19 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -t . -v
 
+  # Runs on every push but only enforces on a v* tag, so it can gate the
+  # build without skipping it on ordinary pushes.
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag against the declared version
+        run: python3 packaging/check_version.py
+
   build:
     name: build (${{ matrix.artifact }})
-    needs: test
+    needs: [test, version]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
