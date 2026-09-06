@@ -382,15 +382,15 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
             shutil.which("lsof") is not None,
             "lsof available for the open_files fallback",
         )
-        if process:
-            paths = system.open_document_paths(process.pid, cfg["document"].get("extensions", []))
-            report(
-                bool(paths) or None,
-                "open_files sees {} artwork file(s)".format(len(paths)) if paths else
-                "open_files sees no artwork files held open",
-            )
-            for candidate in paths[:5]:
-                print("      file: {}".format(candidate))
+    if process:
+        paths = system.open_document_paths(process.pid, cfg["document"].get("extensions", []))
+        report(
+            bool(paths) or None,
+            "open_files sees {} artwork file(s)".format(len(paths)) if paths else
+            "open_files sees no artwork files held open",
+        )
+        for candidate in paths[:5]:
+            print("      file: {}".format(candidate))
 
     if process:
         document = system.detect_document(process.pid, cfg.get("document", {}))

@@ -106,14 +106,42 @@ class DetectDocumentTest(unittest.TestCase):
             document = windows.detect_document(1, self.CONFIG)
         self.assertEqual(document, DocumentInfo("Portrait.clip", False, None, "window_title"))
 
-    def test_notes_that_open_files_is_unavailable(self):
+    def test_falls_back_to_a_mapped_file(self):
         notes = []
-        with mock.patch.object(windows, "window_titles", return_value=[]):
-            self.assertIsNone(windows.detect_document(1, self.CONFIG, notes))
-        self.assertTrue(any("not available on Windows" in note for note in notes))
+        with mock.patch.object(windows, "window_titles", return_value=["CLIP STUDIO PAINT"]), \
+             mock.patch.object(
+                 windows, "open_document_paths", return_value=[r"C:\Art\Portrait.clip"]
+             ):
+            document = windows.detect_document(1, self.CONFIG, notes)
+        self.assertEqual(
+            document, DocumentInfo("Portrait.clip", False, r"C:\Art\Portrait.clip", "open_files")
+        )
 
-    def test_open_document_paths_is_empty(self):
-        self.assertEqual(windows.open_document_paths(1, [".clip"]), [])
+    def test_notes_when_neither_strategy_finds_a_canvas(self):
+        notes = []
+        with mock.patch.object(windows, "window_titles", return_value=["CLIP STUDIO PAINT"]), \
+             mock.patch.object(windows, "open_document_paths", return_value=[]):
+            self.assertIsNone(windows.detect_document(1, self.CONFIG, notes))
+        self.assertTrue(any("chrome" in note for note in notes))
+        self.assertTrue(any("mapped" in note for note in notes))
+
+
+class NtToDosTest(unittest.TestCase):
+    def test_replaces_the_longest_device_prefix(self):
+        drives = {
+            r"\Device\HarddiskVolume3": "C:",
+            r"\Device\HarddiskVolume3\Users": "Z:",
+        }
+        self.assertEqual(
+            windows.nt_to_dos(r"\Device\HarddiskVolume3\Users\a\art.clip", drives),
+            r"Z:\a\art.clip",
+        )
+
+    def test_leaves_an_unknown_device_alone(self):
+        self.assertEqual(
+            windows.nt_to_dos(r"\Device\Mup\share\art.clip", {}),
+            r"\Device\Mup\share\art.clip",
+        )
 
 
 class RunCommandTest(unittest.TestCase):

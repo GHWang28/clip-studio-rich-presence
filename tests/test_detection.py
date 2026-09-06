@@ -25,6 +25,14 @@ class CleanTitleTest(unittest.TestCase):
             clean_title("Sketch.clip \u2014 CLIP STUDIO PAINT"), ("Sketch.clip", False)
         )
 
+    def test_strips_a_versioned_app_suffix(self):
+        self.assertEqual(
+            clean_title("Sketch.clip - CLIP STUDIO PAINT 3.0.4"), ("Sketch.clip", False)
+        )
+        self.assertEqual(
+            clean_title("Sketch.clip - CLIP STUDIO PAINT EX 4.0"), ("Sketch.clip", False)
+        )
+
     def test_does_not_eat_a_bare_app_title(self):
         self.assertEqual(clean_title("CLIP STUDIO PAINT"), ("CLIP STUDIO PAINT", False))
 
@@ -44,6 +52,11 @@ class PickDocumentTest(unittest.TestCase):
 
     def test_ignores_palette_windows(self):
         self.assertIsNone(self.pick(["Layer", "Navigator", "Sub Tool Detail", "CLIP STUDIO PAINT"]))
+
+    def test_ignores_a_versioned_app_title(self):
+        # Recent Windows builds title the frame this way and never mention
+        # the canvas. That must not become the "document".
+        self.assertIsNone(self.pick(["CLIP STUDIO PAINT 3.0.4", "Layer"]))
 
     def test_ignore_list_is_case_insensitive(self):
         self.assertIsNone(self.pick(["LAYER", "navigator"]))

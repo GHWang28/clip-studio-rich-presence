@@ -15,15 +15,16 @@ from typing import List, Optional, Sequence
 # STUDIO PAINT builds use a plain asterisk instead.
 _MODIFIED_SUFFIXES = (" \u2014 Edited", " - Edited", " \u2014 edited", " - edited")
 
-# Windows titles the canvas window "<file> - CLIP STUDIO PAINT".
-_APP_TITLE_SUFFIXES = (
-    " - CLIP STUDIO PAINT",
-    " \u2014 CLIP STUDIO PAINT",
-    " - Clip Studio Paint",
-    " \u2014 Clip Studio Paint",
-    " - CLIP STUDIO PAINT EX",
-    " - CLIP STUDIO PAINT PRO",
-    " - CLIP STUDIO PAINT DEBUT",
+# Windows titles the canvas window "<file> - CLIP STUDIO PAINT". Recent
+# builds append a version ("3.0.4") and sometimes the edition. A title that
+# is only the app name is chrome, not a canvas.
+_APP_SUFFIX_RE = re.compile(
+    r"[\s\u2014\-]+clip studio paint(?:\s+(?:ex|pro|debut))?(?:\s+[\d.]+)?\s*$",
+    re.IGNORECASE,
+)
+_BARE_APP_RE = re.compile(
+    r"^clip studio paint(?:\s+(?:ex|pro|debut))?(?:\s+[\d.]+)?$",
+    re.IGNORECASE,
 )
 
 
@@ -74,15 +75,19 @@ class Observation:
     notes: List[str] = field(default_factory=list)
 
 
+def is_app_chrome_title(text: str) -> bool:
+    """True when the title is the application itself, not a document."""
+    return bool(_BARE_APP_RE.match((text or "").strip()))
+
+
 def clean_title(title: str) -> "tuple":
     """Strip decoration from a window title, reporting the unsaved marker."""
     text = title.strip()
     modified = False
 
-    for suffix in _APP_TITLE_SUFFIXES:
-        if text.endswith(suffix) and len(text) > len(suffix):
-            text = text[: -len(suffix)].strip()
-            break
+    stripped = _APP_SUFFIX_RE.sub("", text).strip()
+    if stripped and stripped != text:
+        text = stripped
 
     for suffix in _MODIFIED_SUFFIXES:
         if text.endswith(suffix):
@@ -116,7 +121,7 @@ def pick_document_from_titles(
     best: Optional[DocumentInfo] = None
     for raw in titles:
         text, modified = clean_title(raw)
-        if not text or text.lower() in ignore:
+        if not text or text.lower() in ignore or is_app_chrome_title(text):
             continue
         candidate = DocumentInfo(name=text, modified=modified, source="window_title")
         if text.lower().endswith(suffixes):

@@ -1,9 +1,10 @@
 """Windows backend: observing CLIP STUDIO PAINT through the Win32 API.
 
 Everything here goes through ``ctypes`` against DLLs that are part of Windows,
-so there is nothing to install. Unlike macOS, reading another application's
-window titles needs no privacy permission, so the file name is available out
-of the box.
+so there is nothing to install. Unlike macOS, reading another application's window titles needs no privacy
+permission. Recent CLIP STUDIO PAINT builds still leave the canvas name out
+of the top-level title, so we also look at child windows and at artwork
+files the process has mapped.
 
 This module imports cleanly on any platform; the Win32 entry points are only
 bound when actually running on Windows, and calling them elsewhere raises.
@@ -34,6 +35,17 @@ WINDOW_PERMISSION_NAME = None
 WINDOW_PERMISSION_HINT = ""
 
 IS_WINDOWS = sys.platform == "win32"
+
+# Install and cache paths, not the user's canvas.
+_OPEN_FILE_EXCLUDES = (
+    "/windows/",
+    "/program files/",
+    "/program files (x86)/",
+    "/appdata/local/",
+    "/appdata/roaming/celsys",
+    "/temp/",
+    "/fonts/",
+)
 
 # Hides the console window that would otherwise flash for each helper command.
 _CREATE_NO_WINDOW = 0x08000000
@@ -102,8 +114,42 @@ if IS_WINDOWS:  # pragma: no cover - exercised only on Windows
     _user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     _user32.EnumWindows.restype = wintypes.BOOL
     _user32.EnumWindows.argtypes = [_WNDENUMPROC, wintypes.LPARAM]
+    _user32.EnumChildWindows.restype = wintypes.BOOL
+    _user32.EnumChildWindows.argtypes = [wintypes.HWND, _WNDENUMPROC, wintypes.LPARAM]
     _user32.GetLastInputInfo.restype = wintypes.BOOL
     _user32.GetLastInputInfo.argtypes = [ctypes.POINTER(LASTINPUTINFO)]
+
+    _psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    _psapi.GetMappedFileNameW.restype = wintypes.DWORD
+    _psapi.GetMappedFileNameW.argtypes = [
+        wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPWSTR, wintypes.DWORD
+    ]
+
+    class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BaseAddress", ctypes.c_void_p),
+            ("AllocationBase", ctypes.c_void_p),
+            ("AllocationProtect", wintypes.DWORD),
+            ("RegionSize", ctypes.c_size_t),
+            ("State", wintypes.DWORD),
+            ("Protect", wintypes.DWORD),
+            ("Type", wintypes.DWORD),
+        ]
+
+    _kernel32.VirtualQueryEx.restype = ctypes.c_size_t
+    _kernel32.VirtualQueryEx.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPCVOID,
+        ctypes.POINTER(MEMORY_BASIC_INFORMATION),
+        ctypes.c_size_t,
+    ]
+    _kernel32.QueryDosDeviceW.restype = wintypes.DWORD
+    _kernel32.QueryDosDeviceW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+
+    PROCESS_VM_READ = 0x0010
+    PROCESS_QUERY_INFORMATION = 0x0400
+    MEM_COMMIT = 0x1000
+    MEM_MAPPED = 0x40000
 
 
 def _require_windows() -> None:
@@ -178,21 +224,27 @@ def list_processes() -> List[Tuple[int, str]]:
     return processes
 
 
-def find_process(match: Dict[str, Any]) -> Optional[ProcessInfo]:
-    """Locate the running CLIP STUDIO PAINT process, if there is one."""
+def find_processes(match: Dict[str, Any]) -> List[ProcessInfo]:
+    """Every running CLIP STUDIO PAINT process, main executable first."""
     wanted_names = [n.lower() for n in match.get("name_contains", [])]
-
-    fallback: Optional[ProcessInfo] = None
+    main: List[ProcessInfo] = []
+    helpers: List[ProcessInfo] = []
     for pid, executable in list_processes():
         lowered = executable.lower().replace("\\", "/")
         if not any(name in lowered for name in wanted_names):
             continue
         info = ProcessInfo(pid=pid, executable=executable)
         if "helper" in lowered or "crashpad" in lowered or "subprocess" in lowered:
-            fallback = fallback or info
-            continue
-        return info
-    return fallback
+            helpers.append(info)
+        else:
+            main.append(info)
+    return main or helpers
+
+
+def find_process(match: Dict[str, Any]) -> Optional[ProcessInfo]:
+    """Locate the running CLIP STUDIO PAINT process, if there is one."""
+    found = find_processes(match)
+    return found[0] if found else None
 
 
 def frontmost_pid() -> Optional[int]:
@@ -272,39 +324,128 @@ def find_app_path() -> Optional[str]:
 # -- document discovery ---------------------------------------------------
 
 
+def _window_text(hwnd: Any) -> str:
+    length = _user32.GetWindowTextLengthW(hwnd)
+    if length <= 0:
+        return ""
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    _user32.GetWindowTextW(hwnd, buffer, length + 1)
+    return buffer.value.strip()
+
+
 def window_titles(pid: int, timeout: float = 5.0) -> List[str]:
-    """Visible top-level window titles for a process, focused window first."""
+    """Window titles for a process, focused window first.
+
+    Recent CLIP STUDIO PAINT builds leave the top-level title as just
+    "CLIP STUDIO PAINT" and put the canvas name on a child window, so
+    children are included.
+    """
     _require_windows()
     foreground = _user32.GetForegroundWindow()
-    found: List[Tuple[Any, str]] = []
+    top: List[Tuple[Any, str]] = []
 
-    def _collect(hwnd, _lparam):
+    def _collect_top(hwnd, _lparam):
         owner = wintypes.DWORD()
         _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         if owner.value != pid or not _user32.IsWindowVisible(hwnd):
             return True
-        length = _user32.GetWindowTextLengthW(hwnd)
-        if length <= 0:
-            return True
-        buffer = ctypes.create_unicode_buffer(length + 1)
-        _user32.GetWindowTextW(hwnd, buffer, length + 1)
-        text = buffer.value.strip()
-        if text:
-            found.append((hwnd, text))
+        top.append((hwnd, _window_text(hwnd)))
         return True
 
-    # The callback must stay referenced for the duration of the enumeration.
-    callback = _WNDENUMPROC(_collect)
+    callback = _WNDENUMPROC(_collect_top)
     _user32.EnumWindows(callback, 0)
+    top.sort(key=lambda item: item[0] != foreground)
 
-    # The focused window is the active canvas, so let it win any tie.
-    found.sort(key=lambda item: item[0] != foreground)
-    return [text for _, text in found]
+    titles: List[str] = []
+    seen = set()
+
+    def _add(text: str) -> None:
+        if text and text not in seen:
+            seen.add(text)
+            titles.append(text)
+
+    for hwnd, text in top:
+        _add(text)
+        children: List[str] = []
+
+        def _collect_child(child, _lparam, bucket=children):
+            child_text = _window_text(child)
+            if child_text:
+                bucket.append(child_text)
+            return True
+
+        child_cb = _WNDENUMPROC(_collect_child)
+        _user32.EnumChildWindows(hwnd, child_cb, 0)
+        for child_text in children:
+            _add(child_text)
+    return titles
+
+
+def nt_to_dos(device_path: str, drives: Optional[Dict[str, str]] = None) -> str:
+    """Turn an NT device path into a DOS path using a drive map.
+
+    GetMappedFileNameW returns ``\\Device\\HarddiskVolume3\\Users\\...``.
+    ``drives`` maps device prefixes to ``C:``-style roots; omitted on
+    Windows, it is read from the system.
+    """
+    if not device_path:
+        return device_path
+    mapping = drives if drives is not None else _query_drive_map()
+    for device, drive in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
+        if device_path.startswith(device):
+            rest = device_path[len(device):]
+            if not rest or rest.startswith("\\"):
+                return drive + rest
+    return device_path
+
+
+def _query_drive_map() -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    if not IS_WINDOWS:
+        return mapping
+    buffer = ctypes.create_unicode_buffer(1024)
+    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        drive = letter + ":"
+        if _kernel32.QueryDosDeviceW(drive, buffer, 1024):
+            mapping[buffer.value] = drive
+    return mapping
 
 
 def open_document_paths(pid: int, extensions: Sequence[str], timeout: float = 5.0) -> List[str]:
-    """Not supported on Windows: there is no built-in equivalent of lsof."""
-    return []
+    """Artwork files mapped into the process, newest first.
+
+    CLIP STUDIO PAINT keeps the canvas out of the top-level window title, so
+    this is the reliable way to see a saved file on Windows. Unsaved canvases
+    are not on disk and cannot be found this way.
+    """
+    if not IS_WINDOWS:
+        return []
+    rights = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION
+    handle = _kernel32.OpenProcess(rights, False, pid)
+    if not handle:
+        return []
+    paths: List[str] = []
+    try:
+        address = 0
+        info = MEMORY_BASIC_INFORMATION()
+        while True:
+            got = _kernel32.VirtualQueryEx(
+                handle, ctypes.c_void_p(address), ctypes.byref(info), ctypes.sizeof(info)
+            )
+            if not got:
+                break
+            if info.State == MEM_COMMIT and info.Type == MEM_MAPPED and info.AllocationBase:
+                name = ctypes.create_unicode_buffer(32768)
+                if _psapi.GetMappedFileNameW(handle, info.AllocationBase, name, 32768):
+                    paths.append(nt_to_dos(name.value))
+            region = int(info.RegionSize or 0)
+            nxt = address + region
+            if nxt <= address:
+                break
+            address = nxt
+    finally:
+        _kernel32.CloseHandle(handle)
+    return filter_document_paths(paths, extensions, _OPEN_FILE_EXCLUDES)
 
 
 def detect_document(
@@ -329,12 +470,24 @@ def detect_document(
                 return document
             if not titles:
                 notes.append("window_title found no windows (is a canvas open?)")
+            else:
+                notes.append(
+                    "window titles are only chrome {}; recent CLIP STUDIO PAINT "
+                    "builds do not put the canvas name in the window title".format(
+                        [t for t in titles[:6]]
+                    )
+                )
 
         elif strategy == "open_files":
-            notes.append(
-                "open_files is not available on Windows; window_title needs no "
-                "permission here, so it is not needed"
-            )
+            paths = open_document_paths(pid, extensions)
+            if paths:
+                name = paths[0].replace("\\", "/").rsplit("/", 1)[-1]
+                return DocumentInfo(
+                    name=name,
+                    path=paths[0],
+                    source="open_files",
+                )
+            notes.append("open_files found no artwork files mapped by the process")
 
     return None
 
@@ -344,17 +497,24 @@ def observe(config: Dict[str, Any]) -> Observation:
     result = Observation()
 
     try:
-        process = find_process(config.get("process_match", {}))
+        processes = find_processes(config.get("process_match", {}))
     except RuntimeError as exc:
         result.notes.append(str(exc))
         return result
 
-    if process is None:
+    if not processes:
         return result
 
     result.running = True
-    result.process = process
-    result.frontmost = frontmost_pid() == process.pid
+    result.process = processes[0]
+    front = frontmost_pid()
+    result.frontmost = front in {item.pid for item in processes}
     result.idle_seconds = idle_seconds()
-    result.document = detect_document(process.pid, config.get("document", {}), result.notes)
+    document_config = config.get("document", {})
+    for process in processes:
+        document = detect_document(process.pid, document_config, result.notes)
+        if document:
+            result.process = process
+            result.document = document
+            break
     return result
