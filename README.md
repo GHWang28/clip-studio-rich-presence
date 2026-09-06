@@ -229,15 +229,25 @@ states (`working`, `idle`, `no_document`):
 
 Available placeholders:
 
-| Placeholder | Example |
-| --- | --- |
-| `{doc}` | `Portrait_final.clip` |
-| `{stem}` / `{ext}` | `Portrait_final` / `clip` |
-| `{modified}` | ` *` when there are unsaved changes |
-| `{file_time}` | time on this file this session |
-| `{file_time_total}` | time on this file ever |
-| `{session_time}` | time since the tool started |
-| `{today_time}` / `{total_time}` | time today / all time |
+| Placeholder | Meaning | Example |
+| --- | --- | --- |
+| `{doc}` | The canvas file name | `Portrait_final.clip` |
+| `{stem}` | The file name without an extension | `Portrait_final` |
+| `{ext}` | The extension only, without the dot | `clip` |
+| `{modified}` | A mark when the canvas has unsaved changes | ` *` |
+| `{app}` | Always CLIP STUDIO PAINT | `CLIP STUDIO PAINT` |
+| `{file_time}` | Time on this file since you launched the app | `47m` |
+| `{file_time_total}` | Time on this file across every session | `12h 31m` |
+| `{session_time}` | Time drawing since you launched the app | `1h 4m` |
+| `{today_time}` | Time drawing today | `2h 14m` |
+| `{total_time}` | Time drawing across every day | `61h 48m` |
+| `{vibe}` | A flavour line from how long this session has run | `in the zone` |
+| `{streak}` | Consecutive days with drawing time | `3` |
+| `{files_today}` | How many files you have drawn on today | `2` |
+| `{top_today}` | The file with the most time today | `Portrait_final.clip` |
+| `{weekday}` | Today's weekday | `Sunday` |
+| `{idle}` | Time since the last keyboard or mouse input | `12s` |
+| `{focus}` | Whether CLIP STUDIO PAINT is in front | `in front` |
 
 ### Privacy
 

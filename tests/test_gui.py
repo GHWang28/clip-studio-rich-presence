@@ -150,6 +150,21 @@ class StatusTextTest(unittest.TestCase):
                 name = placeholder.strip("{}")
                 self.assertIn(name, values)
 
+    def test_every_placeholder_has_an_explanation(self):
+        self.assertEqual(gui.PLACEHOLDERS, tuple(token for token, _, _ in gui.PLACEHOLDER_HELP))
+        for token, meaning, example in gui.PLACEHOLDER_HELP:
+            with self.subTest(token):
+                self.assertTrue(token.startswith("{") and token.endswith("}"))
+                self.assertTrue(meaning)
+                self.assertTrue(example)
+
+    def test_both_themes_define_the_same_swatches(self):
+        self.assertEqual(set(gui.THEMES["light"]), set(gui.THEMES["dark"]))
+        for name, palette in gui.THEMES.items():
+            with self.subTest(name):
+                for key in ("bg", "fg", "muted", "input_bg", "output_bg"):
+                    self.assertTrue(palette[key].startswith("#"))
+
 
 if __name__ == "__main__":
     unittest.main()

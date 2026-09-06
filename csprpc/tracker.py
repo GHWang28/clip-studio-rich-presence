@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -183,3 +184,32 @@ class Tracker:
     def days_by_date(self, limit: Optional[int] = None) -> List[Tuple[str, Dict[str, Any]]]:
         items = sorted(self.data["days"].items(), reverse=True)
         return items[:limit] if limit else items
+
+    def today_file_count(self) -> int:
+        """How many distinct files have accrued time today."""
+        day = self.data["days"].get(self.today_key(), {})
+        return len(day.get("files") or {})
+
+    def top_file_today(self) -> Optional[str]:
+        """The file with the most time today, if any."""
+        files = (self.data["days"].get(self.today_key(), {}) or {}).get("files") or {}
+        if not files:
+            return None
+        return max(files.items(), key=lambda kv: float(kv[1]))[0]
+
+    def drawing_streak(self) -> int:
+        """Consecutive local days with tracked time.
+
+        Today counts if any time has been banked; otherwise the run is the
+        one ending yesterday, so the streak does not drop to zero at midnight
+        before you start drawing.
+        """
+        days = self.data.get("days") or {}
+        cursor = date.today()
+        if self.today_seconds() <= 0:
+            cursor -= timedelta(days=1)
+        streak = 0
+        while float((days.get(cursor.isoformat()) or {}).get("total_seconds", 0.0)) > 0:
+            streak += 1
+            cursor -= timedelta(days=1)
+        return streak

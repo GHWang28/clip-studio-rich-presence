@@ -101,6 +101,38 @@ class TrackerTest(unittest.TestCase):
         self.tracker.note_path("Sketch.clip", "/Users/me/Art/Sketch.clip")
         self.assertEqual(self.tracker.data["files"]["Sketch.clip"]["path"], "/Users/me/Art/Sketch.clip")
 
+    def test_today_file_count_and_favourite(self):
+        self.tick(0, key="A.clip")
+        self.tick(10, key="A.clip")
+        self.tick(25, key="B.clip")
+        self.assertEqual(self.tracker.today_file_count(), 2)
+        self.assertEqual(self.tracker.top_file_today(), "B.clip")
+
+    def test_no_favourite_when_nothing_is_tracked(self):
+        self.assertEqual(self.tracker.today_file_count(), 0)
+        self.assertIsNone(self.tracker.top_file_today())
+        self.assertEqual(self.tracker.drawing_streak(), 0)
+
+    def test_streak_counts_consecutive_days(self):
+        from datetime import date, timedelta
+
+        today = date.today()
+        self.tracker.data["days"] = {
+            today.isoformat(): {"total_seconds": 10.0, "files": {"A.clip": 10.0}},
+            (today - timedelta(days=1)).isoformat(): {"total_seconds": 5.0, "files": {}},
+            (today - timedelta(days=3)).isoformat(): {"total_seconds": 20.0, "files": {}},
+        }
+        self.assertEqual(self.tracker.drawing_streak(), 2)
+
+    def test_streak_survives_midnight_before_you_start(self):
+        from datetime import date, timedelta
+
+        yesterday = date.today() - timedelta(days=1)
+        self.tracker.data["days"] = {
+            yesterday.isoformat(): {"total_seconds": 8.0, "files": {"A.clip": 8.0}},
+        }
+        self.assertEqual(self.tracker.drawing_streak(), 1)
+
 
 class HumanizeTest(unittest.TestCase):
     def test_humanize(self):

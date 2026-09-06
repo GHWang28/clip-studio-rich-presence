@@ -13,6 +13,8 @@ from csprpc.presence import (
     activities_equivalent,
     build_activity,
     evaluate,
+    session_vibe,
+    template_values,
 )
 from csprpc.tracker import Tracker
 
@@ -160,6 +162,46 @@ class BuildActivityTest(unittest.TestCase):
             {"label": "Three", "url": "https://example.com/3"},
         ]
         self.assertEqual(len(self.build(cfg, make_observation())["buttons"]), 2)
+
+
+class SessionVibeTest(unittest.TestCase):
+    def test_steps_up_with_session_length(self):
+        self.assertEqual(session_vibe(0), "warming up")
+        self.assertEqual(session_vibe(119), "warming up")
+        self.assertEqual(session_vibe(120), "in the zone")
+        self.assertEqual(session_vibe(25 * 60), "lost in the page")
+        self.assertEqual(session_vibe(90 * 60), "marathon")
+
+
+class TemplateValuesTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.tracker = Tracker(Path(self.dir.name) / "stats.json")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_fun_placeholders_are_filled(self):
+        values = template_values(
+            make_config(), self.tracker, evaluate(make_config(), make_observation())
+        )
+        self.assertEqual(values["vibe"], "warming up")
+        self.assertEqual(values["files_today"], "0")
+        self.assertEqual(values["top_today"], "")
+        self.assertEqual(values["focus"], "in front")
+        self.assertEqual(values["idle"], "0s")
+        self.assertTrue(values["weekday"])
+
+    def test_top_today_respects_privacy(self):
+        self.tracker.data["days"][self.tracker.today_key()] = {
+            "total_seconds": 10.0,
+            "files": {"Secret.clip": 10.0},
+        }
+        cfg = make_config()
+        cfg["privacy"]["show_file_name"] = False
+        values = template_values(cfg, self.tracker, evaluate(cfg, make_observation()))
+        self.assertEqual(values["top_today"], "a drawing")
+        self.assertNotIn("Secret", values["top_today"])
 
 
 class ActivitiesEquivalentTest(unittest.TestCase):

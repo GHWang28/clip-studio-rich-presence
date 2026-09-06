@@ -19,6 +19,18 @@ from csprpc.tracker import Tracker, humanize
 
 log = logging.getLogger("csprpc")
 
+
+def session_vibe(seconds: float) -> str:
+    """A short flavour line from how long this session has been running."""
+    total = max(0.0, seconds)
+    if total < 120:
+        return "warming up"
+    if total < 25 * 60:
+        return "in the zone"
+    if total < 90 * 60:
+        return "lost in the page"
+    return "marathon"
+
 # Discord rejects details/state outside this range.
 _MAX_FIELD = 128
 _MIN_FIELD = 2
@@ -92,6 +104,15 @@ def template_values(
         ext = extension if base else ""
 
     key = snapshot.document_key
+    top_today = tracker.top_file_today() or ""
+    if top_today:
+        if not privacy.get("show_file_name", True):
+            top_today = str(privacy.get("redacted_name", "a drawing"))
+        elif privacy.get("hide_extension", False):
+            top_stem, _, top_ext = top_today.rpartition(".")
+            if top_stem and len(top_ext) <= 5:
+                top_today = top_stem
+
     return _SafeDict(
         doc=doc_name,
         file=doc_name,
@@ -104,6 +125,13 @@ def template_values(
         today_time=humanize(tracker.today_seconds()),
         total_time=humanize(tracker.total_seconds()),
         app="CLIP STUDIO PAINT",
+        vibe=session_vibe(tracker.session_seconds),
+        streak=str(tracker.drawing_streak()),
+        files_today=str(tracker.today_file_count()),
+        top_today=top_today,
+        weekday=time.strftime("%A"),
+        idle=humanize(snapshot.observation.idle_seconds),
+        focus="in front" if snapshot.observation.frontmost else "in the background",
     )
 
 

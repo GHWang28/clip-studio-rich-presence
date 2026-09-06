@@ -129,6 +129,10 @@ DEFAULTS: Dict[str, Any] = {
         # How often the on-disk totals are flushed.
         "save_interval_seconds": 60,
     },
+    "ui": {
+        # Window colours only; never sent to Discord.
+        "dark_mode": False,
+    },
 }
 
 # Every leaf setting, as a dotted path -> the type it should be parsed as.
@@ -157,6 +161,7 @@ _SCALAR_TYPES: Dict[str, type] = {
     "presence.templates.no_document.details": str,
     "presence.templates.no_document.state": str,
     "stats.save_interval_seconds": float,
+    "ui.dark_mode": bool,
 }
 
 VALID_ELAPSED = ("file", "session", "today", "none")

@@ -20,17 +20,61 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from csprpc import config as config_module
-from csprpc.presence import PresenceDaemon
+from csprpc.presence import PresenceDaemon, session_vibe
 from csprpc.tracker import Tracker, humanize
 
 WINDOW_TITLE = "CLIP STUDIO PAINT Rich Presence"
 
-# What the wording boxes accept, shown to the user verbatim.
-PLACEHOLDERS = (
-    "{doc}", "{stem}", "{ext}", "{modified}", "{app}",
-    "{file_time}", "{file_time_total}", "{session_time}",
-    "{today_time}", "{total_time}",
+# token, what it means, an example of the filled-in text.
+PLACEHOLDER_HELP = (
+    ("{doc}", "The canvas file name", "Summer.clip"),
+    ("{stem}", "The file name without an extension", "Summer"),
+    ("{ext}", "The extension only, without the dot", "clip"),
+    ("{modified}", "A mark when the canvas has unsaved changes", " *"),
+    ("{app}", "Always CLIP STUDIO PAINT", "CLIP STUDIO PAINT"),
+    ("{file_time}", "Time on this file since you launched the app", "47m"),
+    ("{file_time_total}", "Time on this file across every session", "12h 31m"),
+    ("{session_time}", "Time drawing since you launched the app", "1h 4m"),
+    ("{today_time}", "Time drawing today", "2h 14m"),
+    ("{total_time}", "Time drawing across every day", "61h 48m"),
+    ("{vibe}", "A flavour line from how long this session has run", "in the zone"),
+    ("{streak}", "Consecutive days with drawing time", "3"),
+    ("{files_today}", "How many files you have drawn on today", "2"),
+    ("{top_today}", "The file with the most time today", "Summer.clip"),
+    ("{weekday}", "Today's weekday", "Sunday"),
+    ("{idle}", "Time since the last keyboard or mouse input", "12s"),
+    ("{focus}", "Whether CLIP STUDIO PAINT is in front", "in front"),
 )
+
+# What the wording boxes accept, shown to the user verbatim.
+PLACEHOLDERS = tuple(token for token, _meaning, _example in PLACEHOLDER_HELP)
+
+THEMES = {
+    "light": {
+        "bg": "#f3f3f3",
+        "fg": "#1a1a1a",
+        "muted": "#666666",
+        "input_bg": "#ffffff",
+        "input_fg": "#1a1a1a",
+        "select_bg": "#0078d4",
+        "select_fg": "#ffffff",
+        "border": "#d0d0d0",
+        "output_bg": "#ffffff",
+        "output_fg": "#1a1a1a",
+    },
+    "dark": {
+        "bg": "#1e1e1e",
+        "fg": "#e8e8e8",
+        "muted": "#9a9a9a",
+        "input_bg": "#2b2b2b",
+        "input_fg": "#e8e8e8",
+        "select_bg": "#3d6a9a",
+        "select_fg": "#ffffff",
+        "border": "#3a3a3a",
+        "output_bg": "#141414",
+        "output_fg": "#e8e8e8",
+    },
+}
 
 
 class Field:
@@ -144,13 +188,19 @@ class PresenceWindow:
         self.thread: Optional[threading.Thread] = None
         self.vars: Dict[str, Any] = {}
         self._closing = False
+        self.dark_mode = bool((config.get("ui") or {}).get("dark_mode", False))
+        self._text_widgets: List[Any] = []
 
         self.root = tk.Tk()
         self.root.title(WINDOW_TITLE)
-        self.root.minsize(560, 460)
+        self.root.minsize(640, 560)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        self.style = ttk.Style(self.root)
+        self._default_theme = self.style.theme_use()
+
         self._build()
+        self._apply_theme()
         self._start_daemon()
         self.root.after(250, self._drain)
 
@@ -207,12 +257,32 @@ class PresenceWindow:
             self.info[key] = var
             ttk.Label(detail, textvariable=var).grid(row=row, column=1, sticky="w",
                                                      padx=(12, 0), pady=2)
+
+        extras = ttk.LabelFrame(frame, text="Also", padding=12)
+        extras.pack(fill="x", pady=(12, 0))
+        for row, (key, label) in enumerate([
+            ("vibe", "Vibe"),
+            ("streak", "Streak"),
+            ("files_today", "Files today"),
+            ("top_today", "Today's favourite"),
+            ("focus", "Focus"),
+            ("idle", "Idle"),
+        ]):
+            ttk.Label(extras, text=label + ":").grid(row=row, column=0, sticky="w", pady=2)
+            var = tk.StringVar(value="-")
+            self.info[key] = var
+            ttk.Label(extras, textvariable=var).grid(row=row, column=1, sticky="w",
+                                                     padx=(12, 0), pady=2)
         return frame
 
     def _fields_tab(self, parent: Any, groups: List[Tuple[str, Tuple[Field, ...]]],
                     wording: bool = False) -> Any:
         tk, ttk = self.tk, self.ttk
         frame = ttk.Frame(parent, padding=12)
+
+        buttons = ttk.Frame(frame)
+        if wording:
+            buttons.pack(side="bottom", fill="x")
 
         for title, fields in groups:
             box = ttk.LabelFrame(frame, text=title, padding=10)
@@ -222,14 +292,36 @@ class PresenceWindow:
                 self._add_field(box, field, row)
 
         if wording:
-            ttk.Label(frame, text="Available: " + "  ".join(PLACEHOLDERS),
-                      foreground="#666", wraplength=520).pack(anchor="w", pady=(0, 6))
-
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill="x")
+            self._placeholder_legend(frame)
+        else:
+            buttons.pack(fill="x")
         ttk.Button(buttons, text="Save", command=self.on_save).pack(side="left")
         ttk.Button(buttons, text="Revert", command=self.on_revert).pack(side="left", padx=6)
         return frame
+
+    def _placeholder_legend(self, parent: Any) -> None:
+        ttk = self.ttk
+        from tkinter import scrolledtext
+
+        box = ttk.LabelFrame(parent, text="What each placeholder means", padding=8)
+        box.pack(fill="both", expand=True, pady=(0, 8))
+        ttk.Label(
+            box,
+            text="Type these into the wording boxes above. They only change "
+                 "what Discord shows.",
+            style="Muted.TLabel",
+            wraplength=600,
+        ).pack(anchor="w", pady=(0, 6))
+
+        lines = []
+        width = max(len(token) for token, _, _ in PLACEHOLDER_HELP)
+        for token, meaning, example in PLACEHOLDER_HELP:
+            lines.append("{}  {}  e.g. {}".format(token.ljust(width), meaning, example))
+        text = scrolledtext.ScrolledText(box, height=8, wrap="word", font=("TkFixedFont", 9))
+        text.pack(fill="both", expand=True)
+        text.insert("1.0", "\n".join(lines))
+        text.configure(state="disabled")
+        self._text_widgets.append(text)
 
     def _add_field(self, box: Any, field: Field, row: int) -> None:
         tk, ttk = self.tk, self.ttk
@@ -251,7 +343,7 @@ class PresenceWindow:
 
         self.vars[field.key] = var
         if field.hint:
-            ttk.Label(box, text=field.hint, foreground="#666").grid(
+            ttk.Label(box, text=field.hint, style="Muted.TLabel").grid(
                 row=row, column=2, sticky="w", padx=(10, 0))
 
     def _diagnostics_tab(self, parent: Any) -> Any:
@@ -263,11 +355,12 @@ class PresenceWindow:
         bar.pack(fill="x", pady=(0, 8))
         ttk.Button(bar, text="Run checks", command=self.on_doctor).pack(side="left")
         ttk.Button(bar, text="Show tracked time", command=self.on_stats).pack(side="left", padx=6)
-        ttk.Label(bar, text=str(self.path), foreground="#666").pack(side="right")
+        ttk.Label(bar, text=str(self.path), style="Muted.TLabel").pack(side="right")
 
         self.output = scrolledtext.ScrolledText(frame, height=14, wrap="word")
         self.output.pack(fill="both", expand=True)
         self.output.insert("1.0", "Run checks to test permissions, detection and Discord.\n")
+        self._text_widgets.append(self.output)
         return frame
 
     def _build_bottom_bar(self) -> None:
@@ -282,6 +375,8 @@ class PresenceWindow:
                         command=self.on_at_login).pack(side="left")
         ttk.Button(bar, text="Quit", command=self.on_close).pack(side="right")
         ttk.Button(bar, text="Hide", command=self.on_hide).pack(side="right", padx=6)
+        self.theme_button = ttk.Button(bar, text="Dark mode", command=self.on_toggle_theme)
+        self.theme_button.pack(side="right", padx=6)
 
     # -- the daemon --------------------------------------------------------
 
@@ -336,6 +431,19 @@ class PresenceWindow:
         self.info["today"].set(humanize(self.tracker.today_seconds()))
         self.info["session"].set(humanize(self.tracker.session_seconds))
         self.info["total"].set(humanize(self.tracker.total_seconds()))
+
+        streak = self.tracker.drawing_streak()
+        files_today = self.tracker.today_file_count()
+        self.info["vibe"].set(session_vibe(self.tracker.session_seconds))
+        self.info["streak"].set(
+            "{} day{}".format(streak, "" if streak == 1 else "s") if streak else "none yet"
+        )
+        self.info["files_today"].set(str(files_today) if files_today else "none yet")
+        self.info["top_today"].set(self.tracker.top_file_today() or "-")
+        self.info["focus"].set(
+            "in front" if snapshot.observation.frontmost else "in the background"
+        )
+        self.info["idle"].set(humanize(snapshot.observation.idle_seconds))
 
     # -- actions -----------------------------------------------------------
 
@@ -409,6 +517,70 @@ class PresenceWindow:
                 "Could not {} the login item. See the Diagnostics tab.".format(
                     "add" if wanted else "remove"),
             )
+
+    def on_toggle_theme(self) -> None:
+        """Flip the window colours. Discord is not touched."""
+        self.dark_mode = not self.dark_mode
+        self.config.setdefault("ui", {})["dark_mode"] = self.dark_mode
+        try:
+            config_module.save(self.config, self.path)
+        except OSError:
+            pass
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        """Paint ttk widgets and the diagnostics box for the current mode."""
+        palette = THEMES["dark" if self.dark_mode else "light"]
+        style = self.style
+        if self.dark_mode:
+            try:
+                style.theme_use("clam")
+            except self.tk.TclError:
+                pass
+        else:
+            try:
+                style.theme_use(self._default_theme)
+            except self.tk.TclError:
+                pass
+
+        style.configure(".", background=palette["bg"], foreground=palette["fg"])
+        style.configure("TFrame", background=palette["bg"])
+        style.configure("TLabel", background=palette["bg"], foreground=palette["fg"])
+        style.configure("Muted.TLabel", background=palette["bg"], foreground=palette["muted"])
+        style.configure("TButton", background=palette["input_bg"], foreground=palette["fg"])
+        style.configure("TCheckbutton", background=palette["bg"], foreground=palette["fg"])
+        style.configure("TNotebook", background=palette["bg"], bordercolor=palette["border"])
+        style.configure("TNotebook.Tab", background=palette["input_bg"], foreground=palette["fg"])
+        style.map("TNotebook.Tab",
+                  background=[("selected", palette["bg"])],
+                  foreground=[("selected", palette["fg"])])
+        style.configure("TLabelframe", background=palette["bg"], foreground=palette["fg"],
+                        bordercolor=palette["border"])
+        style.configure("TLabelframe.Label", background=palette["bg"], foreground=palette["fg"])
+        style.configure("TEntry", fieldbackground=palette["input_bg"],
+                        foreground=palette["input_fg"], background=palette["input_bg"])
+        style.configure("TCombobox", fieldbackground=palette["input_bg"],
+                        foreground=palette["input_fg"], background=palette["input_bg"])
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", palette["input_bg"])],
+                  foreground=[("readonly", palette["input_fg"])])
+
+        self.root.configure(bg=palette["bg"])
+        for widget in self._text_widgets:
+            was_disabled = str(widget.cget("state")) == "disabled"
+            if was_disabled:
+                widget.configure(state="normal")
+            widget.configure(
+                background=palette["output_bg"],
+                foreground=palette["output_fg"],
+                insertbackground=palette["output_fg"],
+                selectbackground=palette["select_bg"],
+                selectforeground=palette["select_fg"],
+            )
+            if was_disabled:
+                widget.configure(state="disabled")
+        if hasattr(self, "theme_button"):
+            self.theme_button.configure(text="Light mode" if self.dark_mode else "Dark mode")
 
     def on_hide(self) -> None:
         """Minimise, leaving the presence running."""
