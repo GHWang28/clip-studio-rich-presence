@@ -47,7 +47,9 @@ jobs:
             artifact: csprpc-windows
           - os: macos-latest
             artifact: csprpc-macos-arm64
-          - os: macos-13
+          # macos-13 was retired in December 2025. This is the last Intel
+          # image Actions will offer; it goes away in August 2027.
+          - os: macos-15-intel
             artifact: csprpc-macos-x86_64
     steps:
       - uses: actions/checkout@v4
