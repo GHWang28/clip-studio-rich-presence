@@ -208,6 +208,7 @@ Time per file
 | `poll_interval_seconds` | `5` | How often to check CLIP STUDIO PAINT |
 | `idle_timeout_seconds` | `300` | Input silence before the clock pauses |
 | `require_frontmost` | `false` | Only count time when CSP is the active app |
+| `stats.track_strokes` | `false` | Count pen/mouse presses while CSP is in front |
 | `clear_presence_when_idle` | `false` | Hide the presence entirely while away |
 | `presence.elapsed` | `"file"` | What Discord's timer counts: `file`, `session`, `today` or `none` |
 | `privacy.show_file_name` | `true` | Send the file name at all |
@@ -253,6 +254,8 @@ Available placeholders:
 | `{weekday}` | Today's weekday | `Sunday` |
 | `{idle}` | Time since the last keyboard or mouse input | `12s` |
 | `{focus}` | Whether CLIP STUDIO PAINT is in front | `in front` |
+| `{strokes}` | Pen or mouse presses on this canvas this session | `142` |
+| `{session_strokes}` | Pen or mouse presses since you launched the app | `210` |
 
 ### Privacy
 

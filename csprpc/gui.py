@@ -44,6 +44,8 @@ PLACEHOLDER_HELP = (
     ("{weekday}", "Today's weekday", "Sunday"),
     ("{idle}", "Time since the last keyboard or mouse input", "12s"),
     ("{focus}", "Whether CLIP STUDIO PAINT is in front", "in front"),
+    ("{strokes}", "Pen or mouse presses on this canvas this session", "142"),
+    ("{session_strokes}", "Pen or mouse presses since you launched the app", "210"),
 )
 
 # What the wording boxes accept, shown to the user verbatim.
@@ -126,6 +128,12 @@ BEHAVIOUR_FIELDS: List[Tuple[str, Tuple[Field, ...]]] = [
     ("Counting", (
         Field("require_frontmost", "Only count time while CSP is in front", "bool"),
         Field("clear_presence_when_idle", "Hide the presence entirely while away", "bool"),
+        Field(
+            "stats.track_strokes",
+            "Count strokes this session",
+            "bool",
+            hint="Each pen or mouse press while CLIP STUDIO PAINT is in front. Palette clicks count too.",
+        ),
     )),
 ]
 
@@ -267,6 +275,7 @@ class PresenceWindow:
             ("top_today", "Today's favourite"),
             ("focus", "Focus"),
             ("idle", "Idle"),
+            ("strokes", "Strokes"),
         ]):
             ttk.Label(extras, text=label + ":").grid(row=row, column=0, sticky="w", pady=2)
             var = tk.StringVar(value="-")
@@ -444,6 +453,16 @@ class PresenceWindow:
             "in front" if snapshot.observation.frontmost else "in the background"
         )
         self.info["idle"].set(humanize(snapshot.observation.idle_seconds))
+        tracking = bool((self.config.get("stats") or {}).get("track_strokes"))
+        if not tracking:
+            self.info["strokes"].set("off")
+        elif self.daemon is not None:
+            file_count, session_count = self.daemon.strokes.totals()
+            self.info["strokes"].set("{} this canvas · {} this session".format(
+                file_count, session_count
+            ))
+        else:
+            self.info["strokes"].set("0")
 
     # -- actions -----------------------------------------------------------
 

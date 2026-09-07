@@ -128,6 +128,9 @@ DEFAULTS: Dict[str, Any] = {
     "stats": {
         # How often the on-disk totals are flushed.
         "save_interval_seconds": 60,
+        # Count pen/mouse-down edges while CLIP STUDIO PAINT is in front.
+        # Off by default: it is an estimate, and palette clicks count too.
+        "track_strokes": False,
     },
     "ui": {
         # Window colours only; never sent to Discord.
@@ -161,6 +164,7 @@ _SCALAR_TYPES: Dict[str, type] = {
     "presence.templates.no_document.details": str,
     "presence.templates.no_document.state": str,
     "stats.save_interval_seconds": float,
+    "stats.track_strokes": bool,
     "ui.dark_mode": bool,
 }
 

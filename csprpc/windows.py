@@ -127,6 +127,9 @@ if IS_WINDOWS:  # pragma: no cover - exercised only on Windows
     _user32.EnumChildWindows.argtypes = [wintypes.HWND, _WNDENUMPROC, wintypes.LPARAM]
     _user32.GetLastInputInfo.restype = wintypes.BOOL
     _user32.GetLastInputInfo.argtypes = [ctypes.POINTER(LASTINPUTINFO)]
+    _user32.GetAsyncKeyState.restype = wintypes.SHORT
+    _user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    _VK_LBUTTON = 0x01
 
     _psapi = ctypes.WinDLL("psapi", use_last_error=True)
     _psapi.GetMappedFileNameW.restype = wintypes.DWORD
@@ -280,6 +283,15 @@ def idle_seconds() -> float:
     if not _user32.GetLastInputInfo(ctypes.byref(info)):
         return 0.0
     return idle_from_ticks(int(_kernel32.GetTickCount()), int(info.dwTime))
+
+
+def pointer_is_down() -> bool:
+    """True while the pen or left mouse button is held.
+
+    Tablets usually report contact as the left button. No hook is installed.
+    """
+    _require_windows()
+    return bool(_user32.GetAsyncKeyState(_VK_LBUTTON) & 0x8000)
 
 
 def candidate_install_paths() -> List[str]:

@@ -190,6 +190,8 @@ class TemplateValuesTest(unittest.TestCase):
         self.assertEqual(values["top_today"], "")
         self.assertEqual(values["focus"], "in front")
         self.assertEqual(values["idle"], "0s")
+        self.assertEqual(values["strokes"], "0")
+        self.assertEqual(values["session_strokes"], "0")
         self.assertTrue(values["weekday"])
 
     def test_top_today_respects_privacy(self):
@@ -202,6 +204,21 @@ class TemplateValuesTest(unittest.TestCase):
         values = template_values(cfg, self.tracker, evaluate(cfg, make_observation()))
         self.assertEqual(values["top_today"], "a drawing")
         self.assertNotIn("Secret", values["top_today"])
+
+    def test_stroke_placeholders_use_the_counter(self):
+        from csprpc.strokes import StrokeCounter
+
+        counter = StrokeCounter()
+        counter.sample(False, True)
+        counter.sample(True, True)
+        values = template_values(
+            make_config(),
+            self.tracker,
+            evaluate(make_config(), make_observation()),
+            counter,
+        )
+        self.assertEqual(values["strokes"], "1")
+        self.assertEqual(values["session_strokes"], "1")
 
 
 class ActivitiesEquivalentTest(unittest.TestCase):

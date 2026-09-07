@@ -12,6 +12,7 @@ import plistlib
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -190,6 +191,41 @@ def idle_seconds() -> float:
     if not match:
         return 0.0
     return int(match.group(1)) / 1_000_000_000.0
+
+
+# Combined session state, left mouse button. Same idea as GetAsyncKeyState.
+_CG_EVENT_SOURCE_COMBINED = 0
+_CG_MOUSE_BUTTON_LEFT = 0
+_quartz = None
+
+
+def _core_graphics():
+    global _quartz
+    if _quartz is None:
+        import ctypes
+
+        _quartz = ctypes.CDLL(
+            "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+        )
+        _quartz.CGEventSourceButtonState.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+        ]
+        _quartz.CGEventSourceButtonState.restype = ctypes.c_bool
+    return _quartz
+
+
+def pointer_is_down() -> bool:
+    """True while the pen or left mouse button is held.
+
+    Uses CoreGraphics session state, not an event tap, so it needs no extra
+    Accessibility grant beyond what window titles already require.
+    """
+    if sys.platform != "darwin":
+        raise RuntimeError("the macOS backend is only usable on macOS")
+    return bool(_core_graphics().CGEventSourceButtonState(
+        _CG_EVENT_SOURCE_COMBINED, _CG_MOUSE_BUTTON_LEFT
+    ))
 
 
 def find_app_path() -> Optional[str]:

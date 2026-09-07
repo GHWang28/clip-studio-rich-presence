@@ -15,6 +15,7 @@ BACKEND_API = (
     "find_app_path",
     "list_processes",
     "run_command",
+    "pointer_is_down",
 )
 
 

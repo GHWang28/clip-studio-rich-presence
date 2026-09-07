@@ -39,6 +39,9 @@ class LiveWin32Test(unittest.TestCase):
         self.assertGreaterEqual(value, 0.0)
         self.assertLess(value, _ABSURD_IDLE)
 
+    def test_pointer_is_down_returns_a_bool(self):
+        self.assertIsInstance(windows.pointer_is_down(), bool)
+
     def test_frontmost_pid_does_not_crash(self):
         # A CI runner may have no interactive desktop, so None is acceptable.
         pid = windows.frontmost_pid()

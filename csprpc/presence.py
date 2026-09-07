@@ -15,6 +15,7 @@ from csprpc.discord_ipc import (
     DiscordNotRunning,
     IPCError,
 )
+from csprpc.strokes import StrokeCounter
 from csprpc.tracker import Tracker, humanize
 
 log = logging.getLogger("csprpc")
@@ -86,6 +87,7 @@ def template_values(
     config: Dict[str, Any],
     tracker: Tracker,
     snapshot: Snapshot,
+    strokes: Optional[StrokeCounter] = None,
 ) -> Dict[str, str]:
     """The placeholders available inside presence templates."""
     privacy = config.get("privacy", {})
@@ -113,6 +115,8 @@ def template_values(
             if top_stem and len(top_ext) <= 5:
                 top_today = top_stem
 
+    file_strokes, session_strokes = (strokes.totals() if strokes else (0, 0))
+
     return _SafeDict(
         doc=doc_name,
         file=doc_name,
@@ -132,6 +136,8 @@ def template_values(
         weekday=time.strftime("%A"),
         idle=humanize(snapshot.observation.idle_seconds),
         focus="in front" if snapshot.observation.frontmost else "in the background",
+        strokes=str(file_strokes),
+        session_strokes=str(session_strokes),
     )
 
 
@@ -166,6 +172,7 @@ def build_activity(
     config: Dict[str, Any],
     tracker: Tracker,
     snapshot: Snapshot,
+    strokes: Optional[StrokeCounter] = None,
 ) -> Optional[Dict[str, Any]]:
     """The activity payload to send, or None to show nothing at all."""
     if snapshot.kind == "not_running":
@@ -178,7 +185,7 @@ def build_activity(
     template_key = snapshot.kind if snapshot.kind in templates else "working"
     template = templates.get(template_key, {})
 
-    values = template_values(config, tracker, snapshot)
+    values = template_values(config, tracker, snapshot, strokes)
     activity: Dict[str, Any] = {"type": 0}
 
     details = _render(template.get("details", ""), values)
@@ -263,6 +270,8 @@ class PresenceDaemon:
         self._stop_running_since: Optional[float] = None
         self._seen_notes: set = set()
         self.stopped = False
+        self.strokes = StrokeCounter()
+        self._csp_pid: Optional[int] = None
 
     # -- observable state --------------------------------------------------
 
@@ -283,6 +292,8 @@ class PresenceDaemon:
     def step(self) -> Snapshot:
         observation = system.observe(self.config)
         snapshot = evaluate(self.config, observation)
+        self._csp_pid = observation.process.pid if observation.process else None
+        self.strokes.set_document(snapshot.document_key)
 
         self.tracker.tick(snapshot.active, snapshot.document_key, self.max_delta)
         if observation.document and observation.document.path:
@@ -294,7 +305,7 @@ class PresenceDaemon:
                 self._seen_notes.add(note)
                 log.warning("%s", note)
 
-        target = build_activity(self.config, self.tracker, snapshot)
+        target = build_activity(self.config, self.tracker, snapshot, self.strokes)
         target = self._apply_linger(snapshot, target)
 
         if self.on_update:
@@ -442,14 +453,31 @@ class PresenceDaemon:
                 except Exception:  # noqa: BLE001 - a bad poll must not kill the daemon
                     log.exception("poll failed; continuing")
                 # Wake up promptly on stop rather than sleeping the full interval.
+                # Stroke sampling needs a short tick while the toggle is on;
+                # otherwise a 5s Discord poll would miss almost every press.
                 deadline = time.monotonic() + self.poll_interval
                 while not self.stopped and time.monotonic() < deadline:
-                    time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+                    self._sample_strokes()
+                    interval = 0.05 if self._track_strokes() else 0.25
+                    time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
         finally:
             self.shutdown()
 
     def stop(self) -> None:
         self.stopped = True
+
+    def _track_strokes(self) -> bool:
+        return bool((self.config.get("stats") or {}).get("track_strokes"))
+
+    def _sample_strokes(self) -> None:
+        if not self._track_strokes() or self._csp_pid is None:
+            return
+        try:
+            down = system.pointer_is_down()
+            front = system.frontmost_pid()
+        except Exception:  # noqa: BLE001 - a missed sample is not worth a crash
+            return
+        self.strokes.sample(down, front == self._csp_pid)
 
     def shutdown(self) -> None:
         self.tracker.save(force=True)

@@ -23,7 +23,8 @@ class ImportSafetyTest(unittest.TestCase):
     def test_win32_calls_refuse_to_run_off_windows(self):
         if windows.IS_WINDOWS:
             self.skipTest("running on Windows")
-        for call in (windows.list_processes, windows.frontmost_pid, windows.idle_seconds):
+        for call in (windows.list_processes, windows.frontmost_pid, windows.idle_seconds,
+                     windows.pointer_is_down):
             with self.assertRaises(RuntimeError):
                 call()
 
